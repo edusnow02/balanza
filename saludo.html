@@ -46,10 +46,12 @@
    ========================================================================== */
 const CONFIG = {
   PREFIJO_NOMBRE: "AiLink",
-  SERVICIO: 0xFFE0,
-  CAR_ESCRITURA: 0xFFE1,   // app -> balanza (tramas A7)
-  CAR_DATOS: 0xFFE2,       // balanza -> app (tramas A7)
-  CAR_SALUDO: 0xFFE3,      // saludo y comandos A6, ambos sentidos
+  // UUID completos en texto: algunos navegadores (Bluefy) no aceptan la
+  // forma numérica corta.
+  SERVICIO: "0000ffe0-0000-1000-8000-00805f9b34fb",
+  CAR_ESCRITURA: "0000ffe1-0000-1000-8000-00805f9b34fb", // app -> balanza (tramas A7)
+  CAR_DATOS: "0000ffe2-0000-1000-8000-00805f9b34fb",     // balanza -> app (tramas A7)
+  CAR_SALUDO: "0000ffe3-0000-1000-8000-00805f9b34fb",    // saludo y comandos A6
 
   // Clave TEA que Elinkthings publica en su manual de cargadores. NO está
   // confirmado que la balanza use la misma: esta página es la prueba.
@@ -260,8 +262,19 @@ function alDesconectar() {
   }
 }
 
+/* Bluefy a veces rechaza con un texto suelto o un objeto que no es un Error
+   normal; esto saca toda la información que haya, sea cual sea la forma. */
+function describirError(e) {
+  if (e === undefined || e === null) return `(${e})`;
+  if (typeof e === "string") return `texto: "${e}"`;
+  let json = "";
+  try { json = JSON.stringify(e); } catch (_) {}
+  return `name=${e.name} | message=${e.message} | String=${String(e)} | json=${json}`;
+}
+
 function explicar(e, etapa) {
-  log(`ERROR en ${etapa}: ${e.name} — ${e.message}`);
+  log(`ERROR en ${etapa}: ${describirError(e)}`);
+  e = (e && typeof e === "object") ? e : { name: "Desconocido", message: String(e) };
   let que = "Copiá el registro y pegámelo.";
   if (e.name === "NotFoundError") que = "No elegiste dispositivo o no apareció. Subite a la balanza para encenderla y reintentá.";
   if (e.name === "NetworkError") que = "No se pudo conectar. Cerrá AiLink y nRF Connect del todo, encendé la balanza y reintentá.";
@@ -277,8 +290,11 @@ async function pedirDispositivo() {
       optionalServices: [CONFIG.SERVICIO],
     });
   } catch (e) {
-    if (e.name !== "TypeError") throw e;
-    log(`El navegador no aceptó el filtro por nombre (${e.message}); muestro todos los dispositivos.`);
+    // Si el usuario canceló, no insistimos. Cualquier otro rechazo se registra
+    // completo y se reintenta sin filtro, que es la forma más compatible.
+    if (e && e.name === "NotFoundError") throw e;
+    log(`Primer intento rechazado: ${describirError(e)}`);
+    log("Reintento mostrando todos los dispositivos.");
     return await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
       optionalServices: [CONFIG.SERVICIO],
