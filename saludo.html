@@ -23,7 +23,7 @@
 <body>
 
 <h1>Prueba de saludo AiLink</h1>
-<p class="sub">Intenta el saludo cifrado con la clave publicada por el fabricante y registra todo lo que la balanza responda.</p>
+<p class="sub">Hace el saludo cifrado con la clave del SDK del fabricante y registra las tramas de la medición.</p>
 
 <div id="aviso"></div>
 
@@ -53,9 +53,10 @@ const CONFIG = {
   CAR_DATOS: "0000ffe2-0000-1000-8000-00805f9b34fb",     // balanza -> app (tramas A7)
   CAR_SALUDO: "0000ffe3-0000-1000-8000-00805f9b34fb",    // saludo y comandos A6
 
-  // Clave TEA que Elinkthings publica en su manual de cargadores. NO está
-  // confirmado que la balanza use la misma: esta página es la prueba.
-  CLAVE_TEA: [0x9fe98d00, 0x0e79553e, 0xb867e466, 0x25c95564],
+  // Clave TEA por defecto del SDK público de Elinkthings para Android.
+  // Verificada: reproduce byte a byte la respuesta real de esta balanza
+  // al desafío fijo de abajo (variante cifrar / little-endian).
+  CLAVE_TEA: [0x41694C69, 0x6E6B8008, 0x61C322DA, 0x1E407215],
 
   // Desafío fijo (no al azar) a propósito: así la respuesta de la balanza es
   // comparable entre corridas y analizable aunque la clave no coincida.
@@ -235,19 +236,29 @@ function alRecibirSaludo(evento) {
   }
 }
 
+let ultimaTrama = "", repeticiones = 0;
+
 function alRecibirDatos(evento) {
   const t = Array.from(new Uint8Array(evento.target.value.buffer));
-  log(`RECIBO FFE2 len=${t.length} | ${hex(t)}`);
-  // Trama A7: A7 CID(2) LEN PAYLOAD... SUMA 7A. Mostramos el payload
-  // des-ofuscado con la MAC en ambos órdenes; cuál es el correcto se decide
-  // mirando los datos, no acá.
+  // La balanza repite la misma trama decenas de veces por segundo mientras
+  // el peso no cambia; se registra una vez y se cuenta el resto.
+  const clave = hex(t);
+  if (clave === ultimaTrama) { repeticiones++; return; }
+  if (repeticiones > 0) log(`       (la trama anterior se repitió ${repeticiones} veces más)`);
+  ultimaTrama = clave; repeticiones = 0;
+
+  log(`RECIBO FFE2 len=${t.length} | ${clave}`);
+  // Trama A7: A7 CID(2) LEN PAYLOAD... SUMA 7A.
   if (t[0] === 0xA7 && t.length >= 6) {
-    const largo = t[3];
-    const payload = t.slice(4, 4 + largo);
-    const mac = CONFIG.MAC_COMO_SE_ANUNCIA;
-    log(`       payload crudo        | ${hex(payload)}`);
-    log(`       XOR mac anunciada    | ${hex(xorA7(payload, mac, CONFIG.CID))}`);
-    log(`       XOR mac invertida    | ${hex(xorA7(payload, mac.slice().reverse(), CONFIG.CID))}`);
+    const claro = xorA7(t.slice(4, 4 + t[3]), CONFIG.MAC_COMO_SE_ANUNCIA, CONFIG.CID);
+    let lectura = "";
+    // Interpretación TENTATIVA del tipo 01 (peso), a confirmar con más datos.
+    if (claro[0] === 0x01 && claro.length >= 6) {
+      const crudo = (claro[2] << 16) | (claro[3] << 8) | claro[4];
+      const decimales = claro[5] >> 4;
+      lectura = `  => peso ${(crudo / Math.pow(10, decimales)).toFixed(decimales)} (${claro[1] === 2 ? "estable" : "en movimiento"}, unidad ${claro[5] & 0x0F})`;
+    }
+    log(`       descifrado | ${hex(claro)}${lectura}`);
   }
 }
 
@@ -302,9 +313,14 @@ async function pedirDispositivo() {
   }
 }
 
+let temporizadores = [];
+
 async function probar() {
   $("btnConectar").disabled = true;
   varianteConfirmada = null; desafioPendiente = null;
+  // Sin esto, los controles de un intento anterior se mezclan con el nuevo.
+  temporizadores.forEach(clearTimeout); temporizadores = [];
+  ultimaTrama = ""; repeticiones = 0;
 
   try {
     dispositivo = await pedirDispositivo();
@@ -340,13 +356,13 @@ async function probar() {
   aviso("info", "Saludo en curso. No toques nada por 10 segundos.");
 
   for (const s of CONFIG.CONTROLES_CONEXION_S) {
-    setTimeout(() => {
+    temporizadores.push(setTimeout(() => {
       const viva = dispositivo && dispositivo.gatt.connected;
       log(`CONTROL a los ${s} s: ${viva ? "SIGUE CONECTADO" : "desconectado"}`);
       if (viva && s === CONFIG.CONTROLES_CONEXION_S[1]) {
-        aviso("ok", "Sigue conectado pasado el límite: el saludo fue aceptado.\nAhora subite a la balanza hasta que marque el peso, anotá el peso en el campo de nota, y después tocá \"Copiar todo\".");
+        aviso("ok", "Sigue conectado pasado el límite: el saludo fue aceptado.\nAhora hacé una medición COMPLETA: descalzo, con el mango en las manos, hasta que la pantalla de la balanza termine. Anotá el peso que muestra en el campo de nota y después tocá \"Copiar todo\".");
       }
-    }, s * 1000 - (Date.now() - momentoConexion));
+    }, s * 1000 - (Date.now() - momentoConexion)));
   }
 }
 
