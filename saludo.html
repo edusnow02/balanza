@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de saludo AiLink — Fase 0</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 980px; margin: 16px auto; padding: 0 12px; color: #1b1b1b; background: #f6f6f4; }
+  h1 { font-size: 1.25rem; margin-bottom: 4px; }
+  p.sub { margin-top: 0; color: #555; }
+  .fila { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; align-items: center; }
+  button { font-size: 1rem; padding: 10px 14px; border: 1px solid #333; background: #fff; border-radius: 6px; }
+  button.principal { background: #14532d; color: #fff; border-color: #14532d; }
+  button:disabled { opacity: .45; }
+  input[type=text] { font-size: 1rem; padding: 8px; flex: 1; min-width: 200px; border: 1px solid #888; border-radius: 6px; }
+  #aviso { padding: 10px 12px; border-radius: 6px; margin: 10px 0; display: none; white-space: pre-wrap; }
+  #aviso.error { display: block; background: #fde8e8; border: 1px solid #b91c1c; color: #7f1d1d; }
+  #aviso.ok    { display: block; background: #e7f6ec; border: 1px solid #15803d; color: #14532d; }
+  #aviso.info  { display: block; background: #fff7d6; border: 1px solid #a16207; color: #713f12; }
+  pre { background: #111; color: #d7f7d7; padding: 10px; border-radius: 6px; min-height: 260px; max-height: 60vh; overflow: auto; font-size: .78rem; line-height: 1.35; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<h1>Prueba de saludo AiLink</h1>
+<p class="sub">Intenta el saludo cifrado con la clave publicada por el fabricante y registra todo lo que la balanza responda.</p>
+
+<div id="aviso"></div>
+
+<div class="fila">
+  <button id="btnConectar" class="principal">Conectar y probar saludo</button>
+  <button id="btnCopiar">Copiar todo</button>
+</div>
+<div class="fila">
+  <input type="text" id="txtNota" placeholder="Nota: ej. me subo ahora, marca 72.4 kg">
+  <button id="btnNota">Anotar</button>
+</div>
+
+<pre id="registro"></pre>
+
+<script>
+"use strict";
+
+/* ============================================================================
+   CONFIG
+   ========================================================================== */
+const CONFIG = {
+  PREFIJO_NOMBRE: "AiLink",
+  SERVICIO: 0xFFE0,
+  CAR_ESCRITURA: 0xFFE1,   // app -> balanza (tramas A7)
+  CAR_DATOS: 0xFFE2,       // balanza -> app (tramas A7)
+  CAR_SALUDO: 0xFFE3,      // saludo y comandos A6, ambos sentidos
+
+  // Clave TEA que Elinkthings publica en su manual de cargadores. NO está
+  // confirmado que la balanza use la misma: esta página es la prueba.
+  CLAVE_TEA: [0x9fe98d00, 0x0e79553e, 0xb867e466, 0x25c95564],
+
+  // Desafío fijo (no al azar) a propósito: así la respuesta de la balanza es
+  // comparable entre corridas y analizable aunque la clave no coincida.
+  DESAFIO: [0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10],
+
+  // Datos de ESTA balanza, leídos de su anuncio BLE (captura de nRF Connect).
+  // Se usan solo para intentar des-ofuscar las tramas A7 en pantalla.
+  MAC_COMO_SE_ANUNCIA: [0x59, 0x69, 0x02, 0xEF, 0xB6, 0x01],
+  CID: [0x00, 0x13],
+
+  // Si el desafío de la balanza llega antes que su respuesta al nuestro,
+  // esperamos este tiempo antes de contestar con la variante por defecto.
+  ESPERA_VARIANTE_MS: 1200,
+  CONTROLES_CONEXION_S: [6, 10, 20],
+};
+
+/* ============================================================================
+   LÓGICA PURA (sin Bluetooth ni pantalla) — testeable aparte
+   ========================================================================== */
+/*PURO-INICIO*/
+const DELTA = 0x9E3779B9;
+
+function teaCifrar(v, k) {
+  let v0 = v[0] >>> 0, v1 = v[1] >>> 0, suma = 0;
+  for (let i = 0; i < 32; i++) {
+    suma = (suma + DELTA) >>> 0;
+    v0 = (v0 + ((((v1 << 4) >>> 0) + k[0]) ^ (v1 + suma) ^ ((v1 >>> 5) + k[1]))) >>> 0;
+    v1 = (v1 + ((((v0 << 4) >>> 0) + k[2]) ^ (v0 + suma) ^ ((v0 >>> 5) + k[3]))) >>> 0;
+  }
+  return [v0, v1];
+}
+
+function teaDescifrar(v, k) {
+  let v0 = v[0] >>> 0, v1 = v[1] >>> 0, suma = 0xC6EF3720; // DELTA * 32
+  for (let i = 0; i < 32; i++) {
+    v1 = (v1 - ((((v0 << 4) >>> 0) + k[2]) ^ (v0 + suma) ^ ((v0 >>> 5) + k[3]))) >>> 0;
+    v0 = (v0 - ((((v1 << 4) >>> 0) + k[0]) ^ (v1 + suma) ^ ((v1 >>> 5) + k[1]))) >>> 0;
+    suma = (suma - DELTA) >>> 0;
+  }
+  return [v0, v1];
+}
+
+/* Aplica TEA a 16 bytes como dos bloques independientes de 8.
+   El manual no aclara el orden de bytes de cada palabra ni hay ejemplo
+   resuelto, así que se prueban las 4 combinaciones (orden x sentido). */
+function transformar16(bytes, k, littleEndian, cifrar) {
+  const entrada = new DataView(new Uint8Array(bytes).buffer);
+  const salida = new DataView(new ArrayBuffer(16));
+  for (let b = 0; b < 16; b += 8) {
+    const v = [entrada.getUint32(b, littleEndian), entrada.getUint32(b + 4, littleEndian)];
+    const r = cifrar ? teaCifrar(v, k) : teaDescifrar(v, k);
+    salida.setUint32(b, r[0], littleEndian);
+    salida.setUint32(b + 4, r[1], littleEndian);
+  }
+  return Array.from(new Uint8Array(salida.buffer));
+}
+
+const VARIANTES = [
+  { nombre: "cifrar / little-endian",    le: true,  cifrar: true  },
+  { nombre: "cifrar / big-endian",       le: false, cifrar: true  },
+  { nombre: "descifrar / little-endian", le: true,  cifrar: false },
+  { nombre: "descifrar / big-endian",    le: false, cifrar: false },
+];
+
+function aplicarVariante(variante, bytes, k) {
+  return transformar16(bytes, k, variante.le, variante.cifrar);
+}
+
+/* Trama de saludo: A6 11 <función> <16 bytes> <suma de bytes 1..18>. */
+function armarTramaSaludo(funcion, datos16) {
+  const t = [0xA6, 0x11, funcion].concat(datos16);
+  let suma = 0;
+  for (let i = 1; i < t.length; i++) suma += t[i];
+  t.push(suma & 0xFF);
+  return t;
+}
+
+function iguales(a, b) {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+/* Des-ofuscación A7 según el manual: XOR con MAC y con el tipo de producto
+   (un byte 00 del tipo se reemplaza por 01). */
+function xorA7(payload, mac, cid) {
+  const tipo = [cid[0] || 1, cid[1] || 1];
+  return payload.map((b, i) => b ^ mac[i % 6] ^ tipo[i % 2]);
+}
+
+function hex(bytes) {
+  return Array.from(bytes).map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
+}
+/*PURO-FIN*/
+
+/* ============================================================================
+   PANTALLA
+   ========================================================================== */
+const $ = (id) => document.getElementById(id);
+
+function log(texto) {
+  const d = new Date();
+  const p = (n, l = 2) => String(n).padStart(l, "0");
+  const ts = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+  const pre = $("registro");
+  pre.textContent += `[${ts}] ${texto}\n`;
+  pre.scrollTop = pre.scrollHeight;
+}
+
+function aviso(tipo, texto) { const a = $("aviso"); a.className = tipo; a.textContent = texto; }
+
+/* ============================================================================
+   CAPTURA BLE + SALUDO
+   ========================================================================== */
+let dispositivo = null, carSaludo = null, carDatos = null;
+let varianteConfirmada = null;   // la que reproduce la respuesta de la balanza
+let desafioPendiente = null;     // desafío de la balanza aún sin contestar
+let momentoConexion = 0;
+
+/* Cola: Chrome y Bluefy rechazan dos operaciones GATT a la vez, y acá hay
+   escrituras que nacen dentro de una notificación. Todo pasa por esta fila. */
+let cola = Promise.resolve();
+function enFila(tarea) {
+  const p = cola.then(tarea);
+  cola = p.catch(() => {});
+  return p;
+}
+
+function escribir(caract, bytes) {
+  const datos = new Uint8Array(bytes);
+  return enFila(() => caract.writeValueWithResponse
+    ? caract.writeValueWithResponse(datos)
+    : caract.writeValue(datos));
+}
+
+async function responderDesafio(desafio16, variante, esSuposicion) {
+  const respuesta = aplicarVariante(variante, desafio16, CONFIG.CLAVE_TEA);
+  const trama = armarTramaSaludo(0x24, respuesta);
+  log(`ENVÍO  FFE3 respuesta 0x24 [${variante.nombre}${esSuposicion ? ", SUPOSICIÓN" : ""}] | ${hex(trama)}`);
+  try {
+    await escribir(carSaludo, trama);
+  } catch (e) {
+    log(`ERROR al enviar la respuesta: ${e.name} — ${e.message}`);
+  }
+}
+
+function alRecibirSaludo(evento) {
+  const t = Array.from(new Uint8Array(evento.target.value.buffer));
+  log(`RECIBO FFE3 len=${t.length} | ${hex(t)}`);
+  if (t[0] !== 0xA6 || t.length < 19) return;
+  const datos = t.slice(3, 19);
+
+  if (t[2] === 0x24) {
+    // La balanza contestó NUESTRO desafío: comparar contra las 4 variantes.
+    varianteConfirmada = VARIANTES.find((v) =>
+      iguales(aplicarVariante(v, CONFIG.DESAFIO, CONFIG.CLAVE_TEA), datos)) || null;
+    if (varianteConfirmada) {
+      log(`>>> CLAVE CONFIRMADA: la respuesta coincide con la variante "${varianteConfirmada.nombre}".`);
+    } else {
+      log(">>> CLAVE NO COINCIDE: la respuesta no corresponde a ninguna variante con la clave publicada.");
+    }
+    if (desafioPendiente) {
+      const d = desafioPendiente; desafioPendiente = null;
+      responderDesafio(d, varianteConfirmada || VARIANTES[0], !varianteConfirmada);
+    }
+  } else if (t[2] === 0x23) {
+    // La balanza nos desafía a nosotros.
+    log(">>> La balanza envió su desafío (0x23).");
+    if (varianteConfirmada) {
+      responderDesafio(datos, varianteConfirmada, false);
+    } else {
+      desafioPendiente = datos;
+      setTimeout(() => {
+        if (!desafioPendiente) return;
+        const d = desafioPendiente; desafioPendiente = null;
+        responderDesafio(d, VARIANTES[0], true);
+      }, CONFIG.ESPERA_VARIANTE_MS);
+    }
+  }
+}
+
+function alRecibirDatos(evento) {
+  const t = Array.from(new Uint8Array(evento.target.value.buffer));
+  log(`RECIBO FFE2 len=${t.length} | ${hex(t)}`);
+  // Trama A7: A7 CID(2) LEN PAYLOAD... SUMA 7A. Mostramos el payload
+  // des-ofuscado con la MAC en ambos órdenes; cuál es el correcto se decide
+  // mirando los datos, no acá.
+  if (t[0] === 0xA7 && t.length >= 6) {
+    const largo = t[3];
+    const payload = t.slice(4, 4 + largo);
+    const mac = CONFIG.MAC_COMO_SE_ANUNCIA;
+    log(`       payload crudo        | ${hex(payload)}`);
+    log(`       XOR mac anunciada    | ${hex(xorA7(payload, mac, CONFIG.CID))}`);
+    log(`       XOR mac invertida    | ${hex(xorA7(payload, mac.slice().reverse(), CONFIG.CID))}`);
+  }
+}
+
+function alDesconectar() {
+  const seg = ((Date.now() - momentoConexion) / 1000).toFixed(1);
+  log(`=== DESCONECTADO a los ${seg} s de conectar ===`);
+  $("btnConectar").disabled = false;
+  if (seg < 8) {
+    aviso("error", `La balanza cortó a los ${seg} s: el saludo NO fue aceptado (o no llegó a completarse).\nCopiá el registro y pegámelo.`);
+  } else {
+    aviso("info", `Se desconectó a los ${seg} s (ya había pasado el límite de 5 s). Copiá el registro y pegámelo.`);
+  }
+}
+
+function explicar(e, etapa) {
+  log(`ERROR en ${etapa}: ${e.name} — ${e.message}`);
+  let que = "Copiá el registro y pegámelo.";
+  if (e.name === "NotFoundError") que = "No elegiste dispositivo o no apareció. Subite a la balanza para encenderla y reintentá.";
+  if (e.name === "NetworkError") que = "No se pudo conectar. Cerrá AiLink y nRF Connect del todo, encendé la balanza y reintentá.";
+  if (e.name === "SecurityError") que = "El navegador bloqueó el Bluetooth. Revisá los permisos de Bluetooth de esta app/navegador.";
+  aviso("error", `Falló: ${etapa}\n${que}\n(${e.name}: ${e.message})`);
+  $("btnConectar").disabled = false;
+}
+
+async function pedirDispositivo() {
+  try {
+    return await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: CONFIG.PREFIJO_NOMBRE }],
+      optionalServices: [CONFIG.SERVICIO],
+    });
+  } catch (e) {
+    if (e.name !== "TypeError") throw e;
+    log(`El navegador no aceptó el filtro por nombre (${e.message}); muestro todos los dispositivos.`);
+    return await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [CONFIG.SERVICIO],
+    });
+  }
+}
+
+async function probar() {
+  $("btnConectar").disabled = true;
+  varianteConfirmada = null; desafioPendiente = null;
+
+  try {
+    dispositivo = await pedirDispositivo();
+  } catch (e) { explicar(e, "selección del dispositivo"); return; }
+
+  log(`=== DISPOSITIVO: "${dispositivo.name || "(sin nombre)"}" ===`);
+  dispositivo.addEventListener("gattserverdisconnected", alDesconectar);
+
+  try {
+    const servidor = await dispositivo.gatt.connect();
+    momentoConexion = Date.now();
+    log("Conectado. Corre el límite de 5 s de la balanza.");
+
+    const servicio = await servidor.getPrimaryService(CONFIG.SERVICIO);
+    carSaludo = await servicio.getCharacteristic(CONFIG.CAR_SALUDO);
+    carDatos = await servicio.getCharacteristic(CONFIG.CAR_DATOS);
+
+    // Primero escuchar, después hablar: si enviamos el desafío antes de
+    // suscribirnos, la respuesta se pierde.
+    carSaludo.addEventListener("characteristicvaluechanged", alRecibirSaludo);
+    carDatos.addEventListener("characteristicvaluechanged", alRecibirDatos);
+    await enFila(() => carSaludo.startNotifications());
+    log("Suscripto a FFE3 (saludo).");
+    await enFila(() => carDatos.startNotifications());
+    log("Suscripto a FFE2 (datos).");
+
+    const trama = armarTramaSaludo(0x23, CONFIG.DESAFIO);
+    log(`ENVÍO  FFE3 desafío 0x23 | ${hex(trama)}`);
+    await escribir(carSaludo, trama);
+    log(`Desafío enviado a los ${((Date.now() - momentoConexion) / 1000).toFixed(1)} s de conectar.`);
+  } catch (e) { explicar(e, "conexión / saludo"); return; }
+
+  aviso("info", "Saludo en curso. No toques nada por 10 segundos.");
+
+  for (const s of CONFIG.CONTROLES_CONEXION_S) {
+    setTimeout(() => {
+      const viva = dispositivo && dispositivo.gatt.connected;
+      log(`CONTROL a los ${s} s: ${viva ? "SIGUE CONECTADO" : "desconectado"}`);
+      if (viva && s === CONFIG.CONTROLES_CONEXION_S[1]) {
+        aviso("ok", "Sigue conectado pasado el límite: el saludo fue aceptado.\nAhora subite a la balanza hasta que marque el peso, anotá el peso en el campo de nota, y después tocá \"Copiar todo\".");
+      }
+    }, s * 1000 - (Date.now() - momentoConexion));
+  }
+}
+
+/* ============================================================================
+   INICIO
+   ========================================================================== */
+(function inicio() {
+  log(`Navegador: ${navigator.userAgent}`);
+
+  // Autotest del TEA con el vector de prueba clásico (clave y texto en cero).
+  const r = teaCifrar([0, 0], [0, 0, 0, 0]);
+  const vuelta = teaDescifrar(r, [0, 0, 0, 0]);
+  const ok = r[0] === 0x41EA3A0A && r[1] === 0x94BAA940 && vuelta[0] === 0 && vuelta[1] === 0;
+  log(`Autotest TEA: ${ok ? "OK" : "FALLÓ (avisame, no sigas)"}`);
+
+  if (!navigator.bluetooth) {
+    $("btnConectar").disabled = true;
+    aviso("error", "Este navegador no tiene Web Bluetooth.\n→ En iPhone: abrí esta misma dirección desde la app Bluefy (no Safari ni Chrome).\n→ En Android o PC: usá Chrome.");
+    log("navigator.bluetooth NO disponible.");
+    return;
+  }
+  aviso("info", "Cerrá AiLink y nRF Connect. Subite a la balanza para encenderla y tocá el botón verde.");
+})();
+
+$("btnConectar").addEventListener("click", probar);
+
+function anotar() {
+  const t = $("txtNota").value.trim();
+  if (!t) return;
+  log(`NOTA: ${t}`);
+  $("txtNota").value = "";
+}
+$("btnNota").addEventListener("click", anotar);
+$("txtNota").addEventListener("keydown", (e) => { if (e.key === "Enter") anotar(); });
+
+$("btnCopiar").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("registro").textContent);
+    aviso("ok", "Registro copiado. Pegalo en el chat.");
+  } catch (e) {
+    const rango = document.createRange();
+    rango.selectNodeContents($("registro"));
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(rango);
+    aviso("info", "No pude copiar solo. El registro quedó seleccionado: copialo a mano y pegalo en el chat.");
+  }
+});
+</script>
+</body>
+</html>
