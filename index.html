@@ -319,6 +319,23 @@ const Motor = (() => {
     return { porComida: comidas.map((items) => totalesAlimentos(cfg, items)), total: totalesAlimentos(cfg, comidas.flat()) };
   }
 
+  // Frecuencia de consumo con varios renglones por alimento. Pasa lo cargado
+  // con la versión anterior (una casilla "fila.columna" por dato) a la forma
+  // nueva: { fila: [ { rid, columna: valor… } ] }. Lo ya cargado queda como
+  // primer renglón. Devuelve también las casillas viejas que se usaron.
+  function frecuenciaDesdeRespuestas(tablas, respuestas) {
+    const frecuencia = {}, usadas = [];
+    tablas.forEach((tabla) => tabla.filas.forEach((f) => {
+      const fila = { rid: "r1" };
+      tabla.columnas.forEach((c) => { const k = f.id + "." + c.id; if (respuestas[k] != null && respuestas[k] !== "") { fila[c.id] = respuestas[k]; usadas.push(k); } });
+      if (Object.keys(fila).length > 1) frecuencia[f.id] = [fila];
+    }));
+    return { frecuencia, usadas };
+  }
+
+  // Alimentos de la base marcados como consumo habitual (sin repetir).
+  const idsHabituales = (frecuencia) => [...new Set(Object.values(frecuencia || {}).flat().map((x) => x.alimentoId).filter((id) => id != null))];
+
   // Lista de compras: suma los gramos de cada alimento y los agrupa por el
   // grupo de la tabla de alimentos. items: [{ alimento, gramos }].
   function listaCompras(items) {
@@ -517,6 +534,13 @@ const Motor = (() => {
     const compras = listaCompras([{ alimento: { id: 1, nombre: "Arroz", grupo: "Cereales" }, gramos: 100 }, { alimento: { id: 2, nombre: "Tomate", grupo: "Vegetales" }, gramos: 150 }, { alimento: { id: 1, nombre: "Arroz", grupo: "Cereales" }, gramos: 50 }]);
     caso("Lista de compras: suma el mismo alimento (g de arroz)", compras[0].items[0].gramos, 150);
     caso("Lista de compras: cantidad de grupos", compras.length, 2);
+    const tablaFC = [{ filas: [{ id: "fc_pescado" }, { id: "fc_leche" }], columnas: [{ id: "tipo" }, { id: "semanal" }] }];
+    const migFC = frecuenciaDesdeRespuestas(tablaFC, { "fc_pescado.tipo": "atún", "fc_pescado.semanal": "2", "otra": "x" });
+    caso("Frecuencia: lo ya cargado queda como primer renglón (tipo)", migFC.frecuencia.fc_pescado[0].tipo, "atún");
+    caso("Frecuencia: lo ya cargado queda como primer renglón (semanal)", migFC.frecuencia.fc_pescado[0].semanal, "2");
+    caso("Frecuencia: alimento sin datos no genera renglón", migFC.frecuencia.fc_leche === undefined, true);
+    caso("Frecuencia: casillas viejas usadas", migFC.usadas.length, 2);
+    caso("Habituales: dos tipos de pescado + uno repetido en otro alimento", idsHabituales({ fc_pescado: [{ alimentoId: 250 }, { alimentoId: 12 }], fc_otros: [{ alimentoId: 12 }, { tipo: "texto libre" }] }).join(","), "250,12");
     caso("Apnea: cuello 42,9 cm", riesgoApnea(cfg, 42.9), "Bajo");
     caso("Apnea: cuello 43 cm", riesgoApnea(cfg, 43), "Medio");
     caso("Apnea: cuello 48 cm", riesgoApnea(cfg, 48), "Medio");
@@ -566,7 +590,7 @@ const Motor = (() => {
 
   return { edadEn, imc, clasificarIMC, contextura, pesoIdealTabla, pctPesoIdeal, pctPesoHabitual, perdidaPeso,
            pesoAjustado, riesgoCintura, cinturaCadera, grasaBray, deurenberg, composicion, harrisBenedict,
-           macros, distribuir, columnaPorciones, aportePorciones, filaDeAlimento, coberturaPorGrupo, migrarPorcionesV3, listaCompras, riesgoApnea, riesgoSagital, sumaSiCompleta, totalesPorComida, nutrientes, totalesAlimentos, adecuacion,
+           macros, distribuir, columnaPorciones, aportePorciones, filaDeAlimento, coberturaPorGrupo, migrarPorcionesV3, listaCompras, riesgoApnea, riesgoSagital, sumaSiCompleta, totalesPorComida, frecuenciaDesdeRespuestas, idsHabituales, nutrientes, totalesAlimentos, adecuacion,
            repartir, ingredientesEnGramos, promedioSemana,
            evaluar, calcularPlan, autotest };
 })();
@@ -663,7 +687,7 @@ const Datos = (() => {
    Nunca calcula nada clínico: le pregunta todo al Motor.
    ========================================================================== */
 const C = window.CONFIG, ALIMENTOS = window.ALIMENTOS || [];
-const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null, dia: 0, recetaEdit: null };
+const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null, dia: 0, recetaEdit: null, labEdit: null, habitualAbierto: false, habitualComida: null };
 const $app = document.getElementById("app");
 
 /* ---------- utilidades de formato ---------- */
@@ -1133,7 +1157,7 @@ function guiaDeComida(plan, c, ingredientes, kcalCargadas) {
 }
 
 function pestanaPlanificador(pac, ctx) {
-  const { plan, calc } = ctx, m = calc.macros, d = estado.dia, ed = estado.recetaEdit;
+  const { plan, calc } = ctx, m = calc.macros, d = estado.dia, ed = estado.recetaEdit, hab = habitualesDe(pac);
   const filas = plan.dias[d].map(filasDeComida), total = Motor.totalesAlimentos(C, filas.flatMap(ingredientesDe));
   const lib = biblioteca();
   const otrosDias = C.dias.map((n, i) => i === d ? "" : `<option value="${i}">${esc(n)}</option>`).join("");
@@ -1143,6 +1167,12 @@ function pestanaPlanificador(pac, ctx) {
   <div class="panel"><h2>Semana</h2>
     ${tablaSemana(plan, calc, true)}
     <p class="nota">Tocá un día para editarlo. Adecuación aceptada: ±${C.adecuacion.tolerancia} %.</p>
+  </div>
+  <div class="panel no-imprimir"><h2>Consumo habitual <span class="nota" style="font-weight:400">· de la frecuencia de consumo del cuestionario</span></h2>
+    ${hab.filas.length ? `${estado.habitualAbierto ? `<div class="scroll"><table>${hab.filas.map((x) => `<tr><td><b>${esc(x.grupo)}</b></td><td>${esc(x.tipo)}${x.enLista ? ` <span class="chip">habitual</span>` : x.tipo ? ` <span class="nota">(texto libre)</span>` : ""}</td><td>${esc(x.detalle)}</td></tr>`).join("")}</table></div>` : ""}
+    <div class="fila" ${estado.habitualAbierto ? "" : 'style="margin-top:0"'}><button class="mini" data-accion="verHabitual">${estado.habitualAbierto ? "Ocultar" : `Ver lo que consume habitualmente (${hab.filas.length})`}</button></div>
+    <p class="nota">Es solo una ayuda para armar el plan: la app no elige alimentos. Los alimentos elegidos de la lista en el cuestionario aparecen con el botón "Habituales" en cada comida.</p>`
+    : `<p class="nota">Todavía no se cargó la frecuencia de consumo en la pestaña Cuestionario.</p>`}
   </div>
   <div class="panel"><h2>${esc(C.dias[d])}</h2>
     <div class="scroll"><table><tr><th></th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
@@ -1159,11 +1189,12 @@ function pestanaPlanificador(pac, ctx) {
       ${guiaDeComida(plan, i, ings, t.kcal)}
       ${filas[i].length ? `<div class="scroll"><table><tr><th>Alimento o receta</th><th class="n">Cantidad</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th><th></th></tr>
       ${filas[i].map((f) => { const n = Motor.totalesAlimentos(C, f.ingredientes);
-        const nombreCelda = f.receta ? `<b>${esc(f.receta.nombre)}</b><br><span class="nota">${esc(textoIngredientes(f.ingredientes))}</span>` : `${esc(f.alimento.nombre)}<br><span class="nota">${esc(f.alimento.medida)} = ${nf(f.alimento.cantidad, 0)} ${unidadDe(f.alimento)}</span>`;
+        const nombreCelda = f.receta ? `<b>${esc(f.receta.nombre)}</b><br><span class="nota">${esc(textoIngredientes(f.ingredientes))}</span>` : `${esc(f.alimento.nombre)}${hab.ids.has(f.alimento.id) ? ` <span class="chip">habitual</span>` : ""}<br><span class="nota">${esc(f.alimento.medida)} = ${nf(f.alimento.cantidad, 0)} ${unidadDe(f.alimento)}</span>`;
         const cant = f.receta ? `<input class="corto" data-factor="${i}:${f.j}" inputmode="decimal" value="${esc(String(f.factor).replace(".", ","))}"><br><span class="nota">porciones</span>` : `<input class="corto" data-gramos="${i}:${f.j}" inputmode="decimal" value="${esc(f.gramos)}"><br><span class="nota">${unidadDe(f.alimento)}</span>`;
         return `<tr><td>${nombreCelda}</td><td class="n">${cant}</td><td class="n">${nf(n.kcal, 0)}</td><td class="n">${nf(n.hc)}</td><td class="n">${nf(n.prot)}</td><td class="n">${nf(n.grasa)}</td><td class="no-imprimir">${f.receta ? `<button class="mini" data-accion="editarReceta" data-c="${i}" data-j="${f.j}">Adaptar</button> ` : ""}<button class="mini peligro" data-accion="quitarAlimento" data-c="${i}" data-j="${f.j}">Quitar</button></td></tr>`; }).join("")}
       <tr><th>Total</th><th></th><th class="n">${nf(t.kcal, 0)}</th><th class="n">${nf(t.hc)}</th><th class="n">${nf(t.prot)}</th><th class="n">${nf(t.grasa)}</th><th></th></tr></table></div>` : `<p class="nota">Sin alimentos.</p>`}
-      <div class="fila no-imprimir"><input list="listaAlimentos" id="buscar${i}" placeholder="Buscar alimento o receta guardada…" style="flex:1;min-width:200px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarAlimento" data-c="${i}">Agregar</button></div>
+      <div class="fila no-imprimir"><input list="listaAlimentos" id="buscar${i}" placeholder="Buscar alimento o receta guardada…" style="flex:1;min-width:200px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarAlimento" data-c="${i}">Agregar</button>${hab.lista.length ? `<button data-accion="verHabituales" data-c="${i}">Habituales</button>` : ""}</div>
+      ${hab.lista.length && estado.habitualComida === i ? `<div class="fila no-imprimir"><span class="nota">Consume habitualmente (tocá para agregar):</span>${hab.lista.map((a) => `<button class="mini" data-accion="agregarHabitual" data-c="${i}" data-id="${a.id}">+ ${esc(a.nombre)}</button>`).join("")}</div>` : ""}
       ${filas[i].length ? `<div class="fila no-imprimir"><span class="nota">Copiar esta comida a</span><select class="mini" id="destinoComida${i}"><option value="todos">todos los demás días</option>${otrosDias}</select><button class="mini" data-accion="copiarComida" data-c="${i}">Copiar</button></div>` : ""}
     </div>`; }).join("")}
   <p class="nota no-imprimir">Las recetas se crean y se corrigen en el apartado <b>Recetas</b> (arriba). Acá se eligen por su nombre y, con "Adaptar", se ajustan a este paciente. La lista de compras de la semana está en la pestaña <b>Lista de súper</b>.</p>`;
@@ -1202,7 +1233,42 @@ function cuestionarioDe(pac) {
   if (!q) q = { id: pac.id, respuestas: {}, recordatorio: [] };
   q.respuestas = q.respuestas || {}; q.recordatorio = q.recordatorio || [];
   Q.recordatorio.comidas.forEach((_, c) => { if (!q.recordatorio[c]) q.recordatorio[c] = { hora: "", lugar: "", items: [] }; });
+  // Versión 4.3: la frecuencia de consumo admite varios renglones por
+  // alimento. Lo cargado antes pasa a ser el primer renglón (una sola vez).
+  if (!q.frecuencia) {
+    const m = Motor.frecuenciaDesdeRespuestas(TABLAS_MULTIPLES, q.respuestas);
+    q.frecuencia = m.frecuencia; m.usadas.forEach((k) => { delete q.respuestas[k]; });
+  }
   return q;
+}
+const TABLAS_MULTIPLES = Q.secciones.filter((s) => s.tabla && s.tabla.multiple).map((s) => s.tabla);
+// Renglones de un alimento de la frecuencia: siempre hay al menos uno.
+const renglonesFC = (q, filaId) => q.frecuencia[filaId] && q.frecuencia[filaId].length ? q.frecuencia[filaId] : [{ rid: "r1" }];
+const estadoTipoFC = (x) => x.alimentoId != null && alimentoPorId(x.alimentoId) ? "✓ de la lista: cruza con el plan" : x.tipo ? "texto libre: no cruza con el plan" : "";
+
+// Tabla con varios renglones por fila (frecuencia de consumo).
+function tablaMultipleQ(tabla, q) {
+  return `<p class="nota">En "Tipo" elegí el alimento de la lista (por ejemplo, Salmón rosado) para que después aparezca como habitual en el plan semanal. Si no está en la lista, escribilo: queda como texto. Con "+ Agregar otro tipo" se cargan varios del mismo alimento.</p>
+  ${tabla.filas.map((f) => `<div class="qfila"><b>${esc(f.texto)}</b>
+    ${renglonesFC(q, f.id).map((x, k) => { const a = x.alimentoId != null ? alimentoPorId(x.alimentoId) : null;
+      return `<div class="qcols" ${k ? 'style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--linea)"' : ""}>${tabla.columnas.map((c) => { const at = `data-fc="${f.id}:${x.rid}:${c.id}"`;
+        return c.tipo === "alimento" ? `<label class="ancho">${esc(c.texto)}<input list="listaIngredientes" ${at} value="${esc(a ? etiquetaAlimento(a) : x[c.id])}" placeholder="Elegí o escribí"><span class="nota" data-fc-estado="${f.id}:${x.rid}">${estadoTipoFC(x)}</span></label>`
+          : `<label>${esc(c.texto)}<input ${at} ${c.tipo === "numero" ? 'inputmode="decimal"' : ""} value="${esc(x[c.id])}"></label>`; }).join("")}
+        ${k ? `<div style="align-self:end"><button class="mini peligro" data-accion="quitarTipoFC" data-f="${f.id}" data-r="${x.rid}">Quitar este tipo</button></div>` : ""}</div>`; }).join("")}
+    <div class="fila no-imprimir" style="margin-top:6px"><button class="mini" data-accion="agregarTipoFC" data-f="${f.id}">+ Agregar otro tipo</button></div></div>`).join("")}`;
+}
+
+// Consumo habitual del paciente, para mostrarlo en el plan semanal: los
+// renglones con algún dato y los alimentos de la base elegidos en "Tipo".
+function habitualesDe(pac) {
+  const q = cuestionarioDe(pac), filas = [];
+  TABLAS_MULTIPLES.forEach((tabla) => tabla.filas.forEach((f) => (q.frecuencia[f.id] || []).forEach((x) => {
+    const a = x.alimentoId != null ? alimentoPorId(x.alimentoId) : null;
+    const partes = tabla.columnas.filter((c) => c.tipo !== "alimento" && x[c.id] != null && x[c.id] !== "").map((c) => `${c.texto} ${x[c.id]}`);
+    if (a || x.tipo || partes.length) filas.push({ grupo: f.texto, tipo: a ? a.nombre : x.tipo || "", enLista: !!a, detalle: partes.join(" · ") });
+  })));
+  const ids = Motor.idsHabituales(q.frecuencia).filter((id) => alimentoPorId(id));
+  return { filas, ids: new Set(ids), lista: ids.map(alimentoPorId) };
 }
 const labsDe = (id) => Datos.cache.laboratorios.filter((l) => l.pacienteId === id).sort((a, b) => a.fecha < b.fecha ? 1 : -1);
 
@@ -1332,11 +1398,12 @@ function pestanaCuestionario(pac, ctx) {
   const q = cuestionarioDe(pac), r = q.respuestas;
   return `
   <datalist id="listaAlimentos">${biblioteca().map((p) => `<option value="${esc(etiquetaReceta(p))}">`).join("")}${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
+  <datalist id="listaIngredientes">${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
   <div class="fila no-imprimir" style="margin:0 0 10px"><button data-accion="imprimir">Imprimir o guardar como PDF</button><span class="nota">Cada respuesta se guarda sola al salir del campo. Ninguna es obligatoria.${q.modificado ? ` Último cambio: ${fechaCorta(q.modificado)}.` : ""}</span></div>
   ${Q.secciones.map((s) => `<div class="panel"><h2>${esc(s.titulo)}</h2>
     ${s.id === "datos" ? `${dato("Nombres y Apellidos", esc(pac.nombre))}${dato("Sexo", pac.sexo === "hombre" ? "Hombre" : "Mujer")}${dato("Edad", Motor.edadEn(pac.fechaNac, new Date()) + " años")}<div style="height:10px"></div>` : ""}
     ${s.especial === "laboratorio" ? seccionLaboratorio(pac) : s.especial === "antropometria" ? seccionAntropometria(pac, ctx, r) : s.especial === "recordatorio" ? seccionRecordatorio(pac, ctx, q) : ""}
-    ${s.tabla ? tablaQ(s.tabla, r) : ""}
+    ${s.tabla ? (s.tabla.multiple ? tablaMultipleQ(s.tabla, q) : tablaQ(s.tabla, r)) : ""}
     ${s.campos ? `<div class="campos" ${s.tabla ? 'style="margin-top:12px"' : ""}>${camposQ(s.campos, r, pac)}</div>` : ""}
   </div>`).join("")}`;
 }
@@ -1420,7 +1487,7 @@ function vistaAjustes() {
   <div class="panel"><h2>Acerca de</h2><p class="nota">Versión ${esc(C.version)} · ${ALIMENTOS.length} alimentos cargados · Las fórmulas, puntos de corte y tablas están en config.js; los alimentos, en alimentos.js.</p>
     <details style="margin-top:8px"><summary class="nota" style="cursor:pointer">Desarrollo</summary>
       <p class="nota">Para análisis de datos. ${Datos.cache.eventos.length} cambios en el historial (viajan en "Exportar todos los datos"). Los CSV no llevan nombre ni notas del paciente.</p>
-      <div class="fila"><button class="mini" data-accion="csvMediciones">CSV de mediciones</button><button class="mini" data-accion="csvPlanes">CSV de planes</button><button class="mini" data-accion="csvCuestionarios">CSV de cuestionarios</button><button class="mini" data-accion="csvLaboratorios">CSV de laboratorios</button><button class="mini" data-accion="csvClasificacion">Clasificación de lácteos y carnes</button></div>
+      <div class="fila"><button class="mini" data-accion="csvMediciones">CSV de mediciones</button><button class="mini" data-accion="csvPlanes">CSV de planes</button><button class="mini" data-accion="csvCuestionarios">CSV de cuestionarios</button><button class="mini" data-accion="csvFrecuencia">CSV de frecuencia de consumo</button><button class="mini" data-accion="csvLaboratorios">CSV de laboratorios</button><button class="mini" data-accion="csvClasificacion">Clasificación de lácteos y carnes</button></div>
     </details></div>`;
 }
 
@@ -1526,6 +1593,9 @@ function cambiarCuestionario(mutar) {
     if (!igual(antes.respuestas[k], q.respuestas[k])) cambios.push({ pregunta: k, antes: antes.respuestas[k] == null ? null : antes.respuestas[k], despues: q.respuestas[k] == null ? null : q.respuestas[k] });
   });
   q.recordatorio.forEach((com, c) => { if (!igual(antes.recordatorio[c], com)) cambios.push({ recordatorio: Q.recordatorio.comidas[c], antes: antes.recordatorio[c], despues: com }); });
+  [...new Set([...Object.keys(antes.frecuencia || {}), ...Object.keys(q.frecuencia)])].forEach((k) => {
+    if (!igual((antes.frecuencia || {})[k], q.frecuencia[k])) cambios.push({ frecuencia: k, antes: (antes.frecuencia || {})[k] || null, despues: q.frecuencia[k] || null });
+  });
   if (cambios.length) Datos.registrar("cuestionario-cambiado", pac.id, { cambios });
 }
 
@@ -1542,7 +1612,7 @@ function idsCuestionario() {
   const ids = [];
   Q.secciones.forEach((s) => {
     if (s.especial === "antropometria") Q.antropometria.parametros.filter((p) => !p.app && !p.suma).forEach((p) => { ids.push(p.id); if (p.id !== Q.antropometria.sagital.campo) ids.push(p.id + ".interp"); });
-    if (s.tabla) s.tabla.filas.forEach((f) => s.tabla.columnas.forEach((c) => ids.push(f.id + "." + c.id)));
+    if (s.tabla && !s.tabla.multiple) s.tabla.filas.forEach((f) => s.tabla.columnas.forEach((c) => ids.push(f.id + "." + c.id)));
     (s.campos || []).forEach((f) => { ids.push(f.id); (f.detalle || []).forEach((d) => ids.push(d.id)); });
   });
   return ids;
@@ -1558,6 +1628,19 @@ function filasCSVCuestionarios() {
     f.r24_kcal = red(t.total.kcal, 0); f.r24_hc_g = red(t.total.hc, 1); f.r24_prot_g = red(t.total.prot, 1); f.r24_grasa_g = red(t.total.grasa, 1); f.r24_anotaciones_sin_sumar = t.libres;
     return f;
   }).filter(Boolean);
+}
+
+// Una fila por renglón de la frecuencia de consumo (un tipo de alimento).
+function filasCSVFrecuencia() {
+  return Datos.cache.cuestionarios.flatMap((q0) => {
+    const pac = Datos.cache.pacientes.find((p) => p.id === q0.id); if (!pac) return [];
+    const q = cuestionarioDe(pac);
+    return TABLAS_MULTIPLES.flatMap((tabla) => tabla.filas.flatMap((f) => (q.frecuencia[f.id] || []).map((x) => {
+      const fila = { paciente_id: pac.id, alimento: f.id, renglon_id: x.rid, alimento_id: x.alimentoId == null ? null : x.alimentoId };
+      tabla.columnas.forEach((c) => { fila[c.id] = x[c.id] == null ? null : x[c.id]; });
+      return fila;
+    })));
+  });
 }
 
 // Una fila por determinación de cada análisis de laboratorio.
@@ -1821,6 +1904,20 @@ const ACCIONES = {
     avisar("Análisis eliminado.");
   },
   csvCuestionarios: () => descargar(`cuestionarios-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVCuestionarios()), "text/csv"),
+  csvFrecuencia: () => descargar(`frecuencia-consumo-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVFrecuencia()), "text/csv"),
+  // ----- cuestionario: frecuencia de consumo -----
+  agregarTipoFC: (el) => cambiarCuestionario((q) => {
+    const lista = q.frecuencia[el.dataset.f] = renglonesFC(q, el.dataset.f);
+    lista.push({ rid: Datos.nuevoId() });
+  }),
+  quitarTipoFC: (el) => cambiarCuestionario((q) => { q.frecuencia[el.dataset.f] = (q.frecuencia[el.dataset.f] || []).filter((x) => x.rid !== el.dataset.r); }),
+  // ----- plan semanal: consumo habitual -----
+  verHabitual: () => { estado.habitualAbierto = !estado.habitualAbierto; },
+  verHabituales: (el) => { const c = Number(el.dataset.c); estado.habitualComida = estado.habitualComida === c ? null : c; },
+  agregarHabitual: (el) => {
+    const a = alimentoPorId(Number(el.dataset.id)); if (!a) return;
+    cambiarPlan((p) => p.dias[estado.dia][Number(el.dataset.c)].push({ alimentoId: a.id, gramos: a.cantidad }));
+  },
   csvLaboratorios: () => descargar(`laboratorios-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVLaboratorios()), "text/csv"),
   csvMediciones: () => descargar(`mediciones-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVMediciones()), "text/csv"),
   csvPlanes: () => descargar(`planes-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVPlanes()), "text/csv"),
@@ -1883,6 +1980,26 @@ document.addEventListener("change", (e) => {
     cambiarCuestionario((q) => { const v = el.value.trim(); if (v === "") delete q.respuestas[d.q]; else q.respuestas[d.q] = v; });
     const pac = paciente(), calc = calculosAntropo(pac, cuestionarioDe(pac).respuestas);
     document.querySelectorAll("[data-calc]").forEach((x) => { x.textContent = calc[x.dataset.calc]; });
+    return;
+  }
+  else if (d.fc) {
+    // Casilla de la frecuencia de consumo: "alimento:renglón:columna". Se
+    // guarda sin volver a dibujar, igual que el resto del cuestionario.
+    const [fid, rid, col] = d.fc.split(":"), v = el.value.trim();
+    const esAlimento = TABLAS_MULTIPLES.some((t) => t.columnas.some((c) => c.id === col && c.tipo === "alimento"));
+    let fila;
+    cambiarCuestionario((q) => {
+      const lista = q.frecuencia[fid] = renglonesFC(q, fid);
+      fila = lista.find((x) => x.rid === rid); if (!fila) return;
+      if (esAlimento) {
+        // Si coincide con un alimento de la base se guarda su id (cruza con
+        // el plan); si no, queda como texto libre.
+        const a = ALIMENTOS.find((x) => etiquetaAlimento(x) === v) || ALIMENTOS.find((x) => x.nombre.toLowerCase() === v.toLowerCase());
+        if (a) { fila.alimentoId = a.id; fila[col] = a.nombre; } else { delete fila.alimentoId; if (v) fila[col] = v; else delete fila[col]; }
+      } else if (v) fila[col] = v; else delete fila[col];
+    });
+    const marca = document.querySelector(`[data-fc-estado="${fid}:${rid}"]`);
+    if (esAlimento && marca && fila) marca.textContent = estadoTipoFC(fila);
     return;
   }
   else if (d.r24) { const [campo, c] = d.r24.split(":"); cambiarCuestionario((q) => { q.recordatorio[Number(c)][campo] = el.value.trim(); }); return; }

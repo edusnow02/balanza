@@ -17,7 +17,7 @@
    fila cuyo "hasta" sea mayor que el valor. "hasta: null" = sin límite.
    ========================================================================== */
 window.CONFIG = {
-  version: "4.2 — adultos",
+  version: "4.3 — adultos",
 
   /* ---------- Validación de carga (plausibilidad, no criterio clínico) ---------- */
   validacion: {
@@ -424,6 +424,10 @@ window.CONFIG = {
   // soloSexo: la pregunta aparece solo en pacientes de ese sexo.
   // detalle: preguntas que acompañan a la principal (cantidad, describir…).
   // tabla: filas × columnas; cada casilla se guarda como "fila.columna".
+  // tabla con "multiple: true": cada fila admite varios renglones (por
+  //   ejemplo, Pescado: salmón y atún), cada uno con todas sus columnas.
+  // columna de tipo "alimento": se elige de la base de alimentos (así se
+  //   puede cruzar con el plan semanal) o se escribe como texto libre.
   cuestionario: {
     sino: ["Si", "No"],
     secciones: [
@@ -475,7 +479,7 @@ window.CONFIG = {
       ] },
       { id: "r24", titulo: "Recordatorio de 24 horas", especial: "recordatorio" },
       { id: "frecuencia", titulo: "Cuestionario frecuencia de consumo alimentario",
-        tabla: { columnas: [{ id: "tipo", texto: "Tipo" }, { id: "cantidad", texto: "Cantidad" }, { id: "diaria", texto: "Frec. Diaria", tipo: "numero" },
+        tabla: { multiple: true, columnas: [{ id: "tipo", texto: "Tipo", tipo: "alimento" }, { id: "cantidad", texto: "Cantidad" }, { id: "diaria", texto: "Frec. Diaria", tipo: "numero" },
                             { id: "semanal", texto: "Frec. Semanal", tipo: "numero" }, { id: "mensual", texto: "Frec. Mensual", tipo: "numero" }, { id: "obs", texto: "Obs." }],
           filas: [
             { id: "fc_leche", texto: "Leche" }, { id: "fc_yogur", texto: "Yogur" }, { id: "fc_queso", texto: "Queso" }, { id: "fc_carne_vacuna", texto: "Carne vacuna" },
