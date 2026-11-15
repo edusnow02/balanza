@@ -54,6 +54,11 @@
   .grande { font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; }
   svg text { font-size:11px; fill:var(--suave); }
   .solo-impresion { display:none; }
+  /* Cuestionario: cada fila de una tabla de la ficha es un bloque con sus casillas debajo. */
+  .qfila { padding:8px 0; border-bottom:1px solid var(--linea); } .qfila:last-child { border-bottom:0; }
+  .qcols { display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:6px 8px; margin-top:4px; }
+  .qgrupo { grid-column:1/-1; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; padding:8px; border:1px solid var(--linea); border-radius:8px; }
+  .ancho { grid-column:1/-1; }
   .informe { font-size:1.04rem; } .informe table { font-size:.98rem; } .informe h2 { font-size:1.15rem; }
   /* En pantallas angostas el título ocupa su propio renglón y los botones quedan debajo. */
   @media (max-width:520px) { header { flex-wrap:wrap; } header h1 { flex:1 1 100%; } header button { flex:1; } }
@@ -293,6 +298,27 @@ const Motor = (() => {
     return r;
   }
 
+  // Riesgo de apnea del sueño según la circunferencia de cuello (tabla de la
+  // ficha de evaluación): bajo por debajo del primer corte, alto por encima
+  // del segundo, medio entre ambos (incluidos).
+  function riesgoApnea(cfg, cm) {
+    const a = cfg.cuestionario.antropometria.apnea;
+    return cm < a.bajoMenorA ? "Bajo" : cm > a.altoMayorA ? "Alto" : "Medio";
+  }
+
+  // Riesgo metabólico por perímetro sagital (tabla de la ficha): hay riesgo
+  // cuando supera el valor de corte del sexo.
+  const riesgoSagital = (cfg, sexo, cm) => cm > cfg.cuestionario.antropometria.sagital.riesgoMayorA[sexo];
+
+  // Suma una lista de valores solo si están todos (si falta alguno, null).
+  const sumaSiCompleta = (valores) => valores.length && valores.every((v) => v != null) ? valores.reduce((a, b) => a + b, 0) : null;
+
+  // Recordatorio de 24 horas: totales de cada comida y del día. Usa el mismo
+  // cálculo que el plan semanal. comidas: [[{ alimento, gramos }]].
+  function totalesPorComida(cfg, comidas) {
+    return { porComida: comidas.map((items) => totalesAlimentos(cfg, items)), total: totalesAlimentos(cfg, comidas.flat()) };
+  }
+
   // Lista de compras: suma los gramos de cada alimento y los agrupa por el
   // grupo de la tabla de alimentos. items: [{ alimento, gramos }].
   function listaCompras(items) {
@@ -491,6 +517,15 @@ const Motor = (() => {
     const compras = listaCompras([{ alimento: { id: 1, nombre: "Arroz", grupo: "Cereales" }, gramos: 100 }, { alimento: { id: 2, nombre: "Tomate", grupo: "Vegetales" }, gramos: 150 }, { alimento: { id: 1, nombre: "Arroz", grupo: "Cereales" }, gramos: 50 }]);
     caso("Lista de compras: suma el mismo alimento (g de arroz)", compras[0].items[0].gramos, 150);
     caso("Lista de compras: cantidad de grupos", compras.length, 2);
+    caso("Apnea: cuello 42,9 cm", riesgoApnea(cfg, 42.9), "Bajo");
+    caso("Apnea: cuello 43 cm", riesgoApnea(cfg, 43), "Medio");
+    caso("Apnea: cuello 48 cm", riesgoApnea(cfg, 48), "Medio");
+    caso("Apnea: cuello 48,1 cm", riesgoApnea(cfg, 48.1), "Alto");
+    caso("Perímetro sagital mujer 25 cm: sin riesgo", riesgoSagital(cfg, "mujer", 25), false);
+    caso("Perímetro sagital mujer 25,1 cm: riesgo", riesgoSagital(cfg, "mujer", 25.1), true);
+    caso("Perímetro sagital hombre 23,5 cm: riesgo", riesgoSagital(cfg, "hombre", 23.5), true);
+    caso("Suma de 4 pliegues (10 + 5 + 12 + 8)", sumaSiCompleta([10, 5, 12, 8]), 35);
+    caso("Suma de 4 pliegues con uno sin cargar: sin valor", sumaSiCompleta([10, null, 12, 8]), null);
     caso("Peso ideal: hombre 40 años, 155 cm (sin contextura en la tabla, usa edad)", pesoIdealTabla(cfg, "hombre", 155, 40, "Mediana").valor, cfg.pesoIdeal.metropolitan.hombre[155][5]);
     caso("Peso ideal: mujer 65 años, 180 cm (sin edad en la tabla, usa contextura)", pesoIdealTabla(cfg, "mujer", 180, 65, null).valor, cfg.pesoIdeal.metropolitan.mujer[180][9]);
     caso("Peso ideal: talla fuera de la tabla, sin valor", pesoIdealTabla(cfg, "mujer", 140, 30, "Mediana").valor, null);
@@ -509,6 +544,15 @@ const Motor = (() => {
     caso("Preparación: kcal de 200 g de arroz + 3 tomates", totalesAlimentos(cfg, ing).kcal, 800.7);
     caso("Preparación a media porción: kcal", totalesAlimentos(cfg, ingredientesEnGramos({ ingredientes: [{ alimentoId: 1, cantidad: 200, modo: "g" }] }, () => arroz, 0.5)).kcal, 345);
     caso("Promedio semanal (2000 y 1800, cinco días vacíos)", promedioSemana([{ kcal: 2000, hc: 0, prot: 0, grasa: 0 }, { kcal: 1800, hc: 0, prot: 0, grasa: 0 }, { kcal: 0 }, { kcal: 0 }, { kcal: 0 }, { kcal: 0 }, { kcal: 0 }]).kcal, 1900);
+    // Recordatorio: desayuno 200 g de arroz + 150 g de tomate; almuerzo 100 g de arroz.
+    // A mano: 690 + 36,9 = 726,9 kcal; + 345 = 1071,9 kcal. HC: 156 + 6,9 + 78 = 240,9 g.
+    const r24 = totalesPorComida(cfg, [[{ alimento: arroz, gramos: 200 }, { alimento: tomate, gramos: 150 }], [{ alimento: arroz, gramos: 100 }], []]);
+    caso("Recordatorio: kcal del desayuno", r24.porComida[0].kcal, 726.9);
+    caso("Recordatorio: kcal del día", r24.total.kcal, 1071.9);
+    caso("Recordatorio: carbohidratos del día (g)", r24.total.hc, 240.9);
+    caso("Recordatorio: proteínas del día (g)", r24.total.prot, 22.2);
+    caso("Recordatorio: grasas del día (g)", r24.total.grasa, 2.3);
+    caso("Recordatorio: comida vacía suma cero", r24.porComida[2].kcal, 0);
     const evk = evaluar(cfg, { sexo: "mujer", fechaNac: "1990-01-01", tallaCm: 160 }, { fecha: "2026-01-02", peso: 80, grasaPct: 30, grasaKg: 24.9, musculoKg: 51 });
     caso("Kg de grasa: se usa el de AiLink, no peso × %", evk.grasaKg, 24.9);
     caso("Kg de músculo: se usa el de AiLink", evk.musculoKg, 51);
@@ -522,7 +566,7 @@ const Motor = (() => {
 
   return { edadEn, imc, clasificarIMC, contextura, pesoIdealTabla, pctPesoIdeal, pctPesoHabitual, perdidaPeso,
            pesoAjustado, riesgoCintura, cinturaCadera, grasaBray, deurenberg, composicion, harrisBenedict,
-           macros, distribuir, columnaPorciones, aportePorciones, filaDeAlimento, coberturaPorGrupo, migrarPorcionesV3, listaCompras, nutrientes, totalesAlimentos, adecuacion,
+           macros, distribuir, columnaPorciones, aportePorciones, filaDeAlimento, coberturaPorGrupo, migrarPorcionesV3, listaCompras, riesgoApnea, riesgoSagital, sumaSiCompleta, totalesPorComida, nutrientes, totalesAlimentos, adecuacion,
            repartir, ingredientesEnGramos, promedioSemana,
            evaluar, calcularPlan, autotest };
 })();
@@ -539,17 +583,20 @@ const Datos = (() => {
   // "eventos" es el historial de cambios (versión 4): cada alta, edición o
   // borrado deja un renglón con fecha. No se muestra en pantalla; viaja en la
   // exportación para poder analizar los datos más adelante.
-  const TABLAS = ["pacientes", "mediciones", "planes", "preparaciones", "eventos"];
-  const cache = { pacientes: [], mediciones: [], planes: [], preparaciones: [], eventos: [] };
+  // "cuestionarios" (uno por paciente) y "laboratorios" (varios por paciente)
+  // se agregaron con el cuestionario de la ficha de evaluación.
+  const TABLAS = ["pacientes", "mediciones", "planes", "preparaciones", "eventos", "cuestionarios", "laboratorios"];
+  const cache = { pacientes: [], mediciones: [], planes: [], preparaciones: [], eventos: [], cuestionarios: [], laboratorios: [] };
   let db = null, persistente = false;
 
   function abrir() {
     return new Promise((resolver) => {
       let pedido;
       // Versión 2 de la base: agregó la tabla de preparaciones (recetas).
-      // Versión 3: agrega la tabla de eventos. Al subir de versión solo se
-      // crean las tablas que faltan; lo ya guardado no se toca.
-      try { pedido = indexedDB.open("apoyo-nutricional", 3); } catch (e) { return resolver(false); }
+      // Versión 3: agregó la tabla de eventos. Versión 4: cuestionarios y
+      // laboratorios. Al subir de versión solo se crean las tablas que
+      // faltan; lo ya guardado no se toca.
+      try { pedido = indexedDB.open("apoyo-nutricional", 4); } catch (e) { return resolver(false); }
       pedido.onupgradeneeded = () => TABLAS.forEach((t) => {
         if (!pedido.result.objectStoreNames.contains(t)) pedido.result.createObjectStore(t, { keyPath: "id" });
       });
@@ -736,7 +783,7 @@ function formPaciente(p) {
   </div>`;
 }
 
-const PESTANAS = [["evaluacion", "Evaluación"], ["mediciones", "Mediciones"], ["plan", "Calorías y macros"],
+const PESTANAS = [["evaluacion", "Evaluación"], ["mediciones", "Mediciones"], ["cuestionario", "Cuestionario"], ["plan", "Calorías y macros"],
                   ["porciones", "Porciones"], ["planificador", "Plan semanal"], ["compras", "Lista de súper"], ["informe", "Informe"]];
 
 function vistaPaciente() {
@@ -745,6 +792,7 @@ function vistaPaciente() {
   if (estado.editando === "paciente") return formPaciente(pac);
   const ctx = contexto(pac);
   const cuerpo = estado.pestana === "mediciones" ? pestanaMediciones(pac)
+    : estado.pestana === "cuestionario" ? pestanaCuestionario(pac, ctx)
     : !ctx ? `<div class="panel"><p>Este paciente todavía no tiene mediciones. Cargá la primera para ver la evaluación y los cálculos.</p><div class="fila"><button class="pri" data-accion="pestana" data-p="mediciones">Cargar medición</button></div></div>`
     : estado.pestana === "plan" ? pestanaPlan(pac, ctx)
     : estado.pestana === "porciones" ? pestanaPorciones(pac, ctx)
@@ -1144,6 +1192,155 @@ function pestanaCompras(pac, ctx) {
   <textarea id="textoCompras" class="no-imprimir" readonly style="position:absolute;left:-9999px">${esc(textoCompras(pac, c))}</textarea>`;
 }
 
+/* ---------- cuestionario (ficha de evaluación) ---------- */
+// Todas las preguntas salen de config.js (C.cuestionario). Las respuestas se
+// guardan por el "id" de cada pregunta, una ficha por paciente.
+const Q = C.cuestionario;
+
+function cuestionarioDe(pac) {
+  let q = Datos.cache.cuestionarios.find((x) => x.id === pac.id);
+  if (!q) q = { id: pac.id, respuestas: {}, recordatorio: [] };
+  q.respuestas = q.respuestas || {}; q.recordatorio = q.recordatorio || [];
+  Q.recordatorio.comidas.forEach((_, c) => { if (!q.recordatorio[c]) q.recordatorio[c] = { hora: "", lugar: "", items: [] }; });
+  return q;
+}
+const labsDe = (id) => Datos.cache.laboratorios.filter((l) => l.pacienteId === id).sort((a, b) => a.fecha < b.fecha ? 1 : -1);
+
+// Control de una pregunta según su tipo. "data-q" lleva el id de la pregunta.
+function controlQ(id, tipo, opciones, valor) {
+  const v = valor == null ? "" : valor, at = `data-q="${esc(id)}"`;
+  if (tipo === "sino" || tipo === "opcion") return `<select ${at}><option value=""></option>${(opciones || Q.sino).map((o) => `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  if (tipo === "fecha") return `<input type="date" ${at} value="${esc(v)}">`;
+  if (tipo === "largo") return `<textarea rows="3" ${at}>${esc(v)}</textarea>`;
+  return `<input ${at} ${tipo === "numero" ? 'inputmode="decimal"' : ""} value="${esc(v)}">`;
+}
+const campoQ = (f, r) => `<label ${f.tipo === "largo" ? 'class="ancho"' : ""}>${esc(f.texto)}${controlQ(f.id, f.tipo, f.opciones, r[f.id])}</label>`;
+// Las preguntas con "soloSexo" aparecen solo en pacientes de ese sexo.
+const camposQ = (campos, r, pac) => campos.filter((f) => !f.soloSexo || f.soloSexo === pac.sexo)
+  .map((f) => f.detalle ? `<div class="qgrupo">${campoQ(f, r)}${f.detalle.map((d) => campoQ(d, r)).join("")}</div>` : campoQ(f, r)).join("");
+const tablaQ = (tabla, r) => `${tabla.titulo ? `<h3>${esc(tabla.titulo)}</h3>` : ""}${tabla.filas.map((f) => `<div class="qfila"><b>${esc(f.texto)}</b>
+  <div class="qcols">${tabla.columnas.map((c) => `<label>${esc(c.texto)}${controlQ(f.id + "." + c.id, c.tipo, c.opciones, r[f.id + "." + c.id])}</label>`).join("")}</div></div>`).join("")}`;
+
+// Valor e interpretación de los parámetros que la app ya tiene o calcula
+// (última medición). Devuelve [valor, interpretación] por clave.
+function valoresDeLaApp(pac, ctx) {
+  const ev = ctx && ctx.ev, med = ctx && ctx.med, kg = (v) => nf(v) + " kg", cm = (v) => nf(v) + " cm", pc = (v) => nf(v) + " %";
+  return {
+    peso: ev ? [kg(ev.peso)] : [], talla: [nf(pac.tallaCm, 0) + " cm"], pesoHabitual: pac.pesoHabitual ? [kg(pac.pesoHabitual)] : [],
+    pctHabitual: ev && ev.pctHabitual ? [pc(ev.pctHabitual.pct), ev.pctHabitual.nombre] : [],
+    pesoIdeal: ev && ev.pesoIdeal.valor ? [kg(ev.pesoIdeal.valor), ev.pesoIdeal.criterio] : [],
+    pctIdeal: ev && ev.pctIdeal ? [pc(ev.pctIdeal.pct), ev.pctIdeal.nombre] : [],
+    pesoAjustado: ev && ev.pesoAjustado ? [kg(ev.pesoAjustado)] : [],
+    imc: ev ? [nf(ev.imc, 2), ev.imcClase.nombre] : [],
+    cintura: med && med.cintura ? [cm(med.cintura)] : [],
+    perdida: ev && ev.perdida && ev.perdida.pct > 0 ? [pc(ev.perdida.pct), ev.perdida.nombre] : [],
+    contextura: ev && ev.contextura ? [ev.contextura.nombre] : [],
+    muneca: pac.munecaCm ? [cm(pac.munecaCm)] : [],
+    grasa: ev && ev.grasaPct != null ? [pc(ev.grasaPct), ev.grasaClase] : [],
+    deurenberg: ev ? [pc(ev.grasaEstimada)] : [],
+    rcv: ev && ev.cintura ? [ev.cintura] : [],
+  };
+}
+
+// Lo que se calcula con las respuestas del cuestionario: riesgo de apnea,
+// riesgo por perímetro sagital y sumas (4 pliegues).
+function calculosAntropo(pac, r) {
+  const A = Q.antropometria, cuello = num(r[A.apnea.campo]), sag = num(r[A.sagital.campo]), corte = A.sagital.riesgoMayorA[pac.sexo];
+  const out = { apnea: cuello == null ? "—" : Motor.riesgoApnea(C, cuello) };
+  out.sagital = sag == null ? "" : Motor.riesgoSagital(C, pac.sexo, sag) ? `Riesgo metabólico (supera ${corte} cm)` : `No supera ${corte} cm`;
+  A.parametros.filter((p) => p.suma).forEach((p) => { const s = Motor.sumaSiCompleta(p.suma.map((id) => num(r[id]))); out[p.id] = s == null ? "—" : nf(s); });
+  return out;
+}
+
+function seccionAntropometria(pac, ctx, r) {
+  const A = Q.antropometria, app = valoresDeLaApp(pac, ctx), calc = calculosAntropo(pac, r);
+  return `<p class="nota">Lo marcado "de la app" sale de la ficha del paciente y de su última medición; no hace falta cargarlo de nuevo.${ctx ? "" : " Este paciente todavía no tiene mediciones: esos valores aparecen al cargar la primera."}</p>
+  ${A.parametros.map((p) => {
+    let cuerpo;
+    if (p.app === "apnea") cuerpo = `<b data-calc="apnea">${esc(calc.apnea)}</b> <span class="nota">según Cia. de Cuello</span>`;
+    else if (p.app) { const [v, i] = app[p.app] || []; cuerpo = v ? `<b>${esc(v)}</b>${i ? ` <span class="chip">${esc(i)}</span>` : ""} <span class="nota">de la app</span>` : `<span class="nota">— (de la app, sin dato)</span>`; }
+    else if (p.suma) cuerpo = `<b data-calc="${p.id}">${esc(calc[p.id])}</b> <span class="nota">suma automática; necesita los cuatro pliegues</span>`;
+    else if (p.id === A.sagital.campo) cuerpo = `<div class="qcols"><label>Valor (cm)${controlQ(p.id, "numero", null, r[p.id])}</label><div><span class="nota">Interpretación</span><br><span data-calc="sagital">${esc(calc.sagital)}</span></div></div>`;
+    else cuerpo = `<div class="qcols"><label>Valor${controlQ(p.id, "numero", null, r[p.id])}</label><label>Interpretación${controlQ(p.id + ".interp", "texto", null, r[p.id + ".interp"])}</label></div>`;
+    return `<div class="qfila"><b>${esc(p.texto)}</b>${p.app || p.suma ? ": " : ""}${cuerpo}</div>`; }).join("")}`;
+}
+
+const textoValor = (v) => typeof v === "number" ? String(v).replace(".", ",") : String(v == null ? "" : v);
+
+function editorLab() {
+  const b = estado.labEdit.borrador, L = Q.laboratorio;
+  const interp = (nombre, v) => `<select name="${nombre}"><option value=""></option>${L.interpretaciones.map((o) => `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  return `<div style="border:1px solid var(--marca);border-radius:8px;padding:10px;margin-bottom:10px"><form id="fLab">
+    <div class="campos"><label>Fecha del análisis<input type="date" name="fecha" value="${esc(b.fecha)}"></label></div>
+    ${L.determinaciones.map((d) => { const x = b.valores[d.id] || {};
+      return `<div class="qfila"><b>${esc(d.texto)}</b><div class="qcols"><label>Valor<input name="v:${d.id}" inputmode="decimal" value="${esc(textoValor(x.valor))}"></label><label>Interpretación${interp("i:" + d.id, x.interp)}</label></div></div>`; }).join("")}
+    ${b.extras.map((x, k) => `<div class="qfila"><div class="qcols"><label>Otra determinación<input name="xn:${k}" value="${esc(x.nombre)}" placeholder="Nombre"></label><label>Valor<input name="xv:${k}" inputmode="decimal" value="${esc(textoValor(x.valor))}"></label><label>Interpretación${interp("xi:" + k, x.interp)}</label></div></div>`).join("")}
+    </form>
+    <div class="fila"><button data-accion="agregarDeterminacion">+ Otra determinación</button></div>
+    <div class="fila"><button class="pri" data-accion="guardarLab">Guardar análisis</button><button data-accion="cancelarLab">Cancelar</button></div>
+    <p class="nota">Se guardan solo las determinaciones con valor. Las que agregues con "+ Otra determinación" quedan ofrecidas en los próximos análisis.</p></div>`;
+}
+
+function seccionLaboratorio(pac) {
+  const labs = labsDe(pac.id), L = Q.laboratorio;
+  const linea = (nombre, x) => `${esc(nombre)}: <b>${esc(textoValor(x.valor))}</b>${x.interp ? ` (${esc(x.interp)})` : ""}`;
+  return `${estado.labEdit ? editorLab() : `<div class="fila" style="margin-top:0"><button class="pri" data-accion="nuevoLab">+ Nuevo análisis</button></div>`}
+  ${labs.length ? labs.map((l) => `<div class="qfila"><b>${fechaCorta(l.fecha + "T12:00")}</b> <button class="mini" data-accion="editarLab" data-id="${l.id}">Editar</button> <button class="mini peligro" data-accion="borrarLab" data-id="${l.id}">Eliminar</button>
+    <br><span class="nota">${[...L.determinaciones.filter((d) => l.valores[d.id]).map((d) => linea(d.texto, l.valores[d.id])), ...(l.extras || []).map((x) => linea(x.nombre, x))].join(" · ") || "Sin valores"}</span></div>`).join("")
+    : `<p class="nota">Todavía no hay análisis cargados. Se pueden cargar varios, cada uno con su fecha.</p>`}`;
+}
+
+// Filas de una comida del recordatorio: alimentos y recetas (suman) y
+// anotaciones de texto libre (no suman).
+function filasR24(com) {
+  return com.items.map((it, j) => {
+    if (it.texto != null) return { j, texto: it.texto, ingredientes: [] };
+    const f = filasDeComida([it])[0];
+    return f ? { ...f, j } : null;
+  }).filter(Boolean);
+}
+function totalesR24(q) {
+  const filas = q.recordatorio.map(filasR24);
+  return { filas, ...Motor.totalesPorComida(C, filas.map(ingredientesDe)), libres: filas.flat().filter((f) => f.texto != null).length };
+}
+
+function seccionRecordatorio(pac, ctx, q) {
+  const t = totalesR24(q), m = ctx && ctx.calc.macros, pct = (a, b) => b > 0 ? nf(a * 100 / b, 0) + " %" : "—";
+  return `<p class="nota">Cargá lo que dijo el paciente eligiendo cada alimento de la lista (o una receta, con ★). La app suma sola. Lo que no esté en la lista se anota como texto y no entra en la suma.</p>
+  ${Q.recordatorio.comidas.map((nombre, c) => { const com = q.recordatorio[c], fs = t.filas[c], tc = t.porComida[c];
+    return `<h3>${esc(nombre)}</h3>
+    <div class="qcols"><label>Hora<input data-r24="hora:${c}" value="${esc(com.hora)}"></label><label>Lugar<input data-r24="lugar:${c}" value="${esc(com.lugar)}"></label></div>
+    ${fs.length ? `<div class="scroll"><table><tr><th>Alimento o receta</th><th class="n">Cantidad</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th><th></th></tr>
+    ${fs.map((f) => { const quitar = `<button class="mini peligro" data-accion="quitarR24" data-c="${c}" data-j="${f.j}">Quitar</button>`;
+      if (f.texto != null) return `<tr><td>${esc(f.texto)}<br><span class="chip avi">no entra en la suma</span></td><td></td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td>${quitar}</td></tr>`;
+      const n = Motor.totalesAlimentos(C, f.ingredientes);
+      const nombreCelda = f.receta ? `<b>${esc(f.receta.nombre)}</b><br><span class="nota">${esc(textoIngredientes(f.ingredientes))}</span>` : `${esc(f.alimento.nombre)}<br><span class="nota">${esc(f.alimento.medida)} = ${nf(f.alimento.cantidad, 0)} ${unidadDe(f.alimento)}</span>`;
+      const cant = f.receta ? `<input class="corto" data-r24-factor="${c}:${f.j}" inputmode="decimal" value="${esc(String(f.factor).replace(".", ","))}"><br><span class="nota">porciones</span>` : `<input class="corto" data-r24-gramos="${c}:${f.j}" inputmode="decimal" value="${esc(f.gramos)}"><br><span class="nota">${unidadDe(f.alimento)}</span>`;
+      return `<tr><td>${nombreCelda}</td><td class="n">${cant}</td><td class="n">${nf(n.kcal, 0)}</td><td class="n">${nf(n.hc)}</td><td class="n">${nf(n.prot)}</td><td class="n">${nf(n.grasa)}</td><td>${quitar}</td></tr>`; }).join("")}
+    <tr><th>Total ${esc(nombre.toLowerCase())}</th><th></th><th class="n">${nf(tc.kcal, 0)}</th><th class="n">${nf(tc.hc)}</th><th class="n">${nf(tc.prot)}</th><th class="n">${nf(tc.grasa)}</th><th></th></tr></table></div>` : ""}
+    <div class="fila no-imprimir"><input list="listaAlimentos" id="r24buscar${c}" placeholder="Buscar alimento o receta…" style="flex:1;min-width:180px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarR24" data-c="${c}">Agregar</button><button data-accion="anotarR24" data-c="${c}">Anotar como texto</button></div>`; }).join("")}
+  <h3>Total del día</h3>
+  <div class="scroll"><table><tr><th></th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
+    <tr><td>Recordatorio (lo que come hoy)</td><td class="n"><b>${nf(t.total.kcal, 0)}</b></td><td class="n"><b>${nf(t.total.hc)}</b></td><td class="n"><b>${nf(t.total.prot)}</b></td><td class="n"><b>${nf(t.total.grasa)}</b></td></tr>
+    ${ctx ? `<tr><td>Meta indicada</td><td class="n">${nf(ctx.calc.vct, 0)}</td><td class="n">${nf(m.hc.g)}</td><td class="n">${nf(m.prot.g)}</td><td class="n">${nf(m.grasa.g)}</td></tr>
+    <tr><th>Recordatorio como % de la meta</th><th class="n">${pct(t.total.kcal, ctx.calc.vct)}</th><th class="n">${pct(t.total.hc, m.hc.g)}</th><th class="n">${pct(t.total.prot, m.prot.g)}</th><th class="n">${pct(t.total.grasa, m.grasa.g)}</th></tr>` : ""}</table></div>
+  ${ctx ? "" : `<p class="nota">La comparación con la meta aparece cuando el paciente tiene una medición cargada.</p>`}
+  ${t.libres ? `<div class="aviso">${t.libres} anotación${t.libres === 1 ? "" : "es"} de texto no entra${t.libres === 1 ? "" : "n"} en la suma: el total real es mayor que el mostrado.</div>` : ""}`;
+}
+
+function pestanaCuestionario(pac, ctx) {
+  const q = cuestionarioDe(pac), r = q.respuestas;
+  return `
+  <datalist id="listaAlimentos">${biblioteca().map((p) => `<option value="${esc(etiquetaReceta(p))}">`).join("")}${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
+  <div class="fila no-imprimir" style="margin:0 0 10px"><button data-accion="imprimir">Imprimir o guardar como PDF</button><span class="nota">Cada respuesta se guarda sola al salir del campo. Ninguna es obligatoria.${q.modificado ? ` Último cambio: ${fechaCorta(q.modificado)}.` : ""}</span></div>
+  ${Q.secciones.map((s) => `<div class="panel"><h2>${esc(s.titulo)}</h2>
+    ${s.id === "datos" ? `${dato("Nombres y Apellidos", esc(pac.nombre))}${dato("Sexo", pac.sexo === "hombre" ? "Hombre" : "Mujer")}${dato("Edad", Motor.edadEn(pac.fechaNac, new Date()) + " años")}<div style="height:10px"></div>` : ""}
+    ${s.especial === "laboratorio" ? seccionLaboratorio(pac) : s.especial === "antropometria" ? seccionAntropometria(pac, ctx, r) : s.especial === "recordatorio" ? seccionRecordatorio(pac, ctx, q) : ""}
+    ${s.tabla ? tablaQ(s.tabla, r) : ""}
+    ${s.campos ? `<div class="campos" ${s.tabla ? 'style="margin-top:12px"' : ""}>${camposQ(s.campos, r, pac)}</div>` : ""}
+  </div>`).join("")}`;
+}
+
 // Cantidad en palabras del paciente: gramos y, si coincide con la medida
 // casera de la tabla (o un múltiplo de media), también esa medida.
 function cantidadCasera(a, gramos) {
@@ -1223,7 +1420,7 @@ function vistaAjustes() {
   <div class="panel"><h2>Acerca de</h2><p class="nota">Versión ${esc(C.version)} · ${ALIMENTOS.length} alimentos cargados · Las fórmulas, puntos de corte y tablas están en config.js; los alimentos, en alimentos.js.</p>
     <details style="margin-top:8px"><summary class="nota" style="cursor:pointer">Desarrollo</summary>
       <p class="nota">Para análisis de datos. ${Datos.cache.eventos.length} cambios en el historial (viajan en "Exportar todos los datos"). Los CSV no llevan nombre ni notas del paciente.</p>
-      <div class="fila"><button class="mini" data-accion="csvMediciones">CSV de mediciones</button><button class="mini" data-accion="csvPlanes">CSV de planes</button><button class="mini" data-accion="csvClasificacion">Clasificación de lácteos y carnes</button></div>
+      <div class="fila"><button class="mini" data-accion="csvMediciones">CSV de mediciones</button><button class="mini" data-accion="csvPlanes">CSV de planes</button><button class="mini" data-accion="csvCuestionarios">CSV de cuestionarios</button><button class="mini" data-accion="csvLaboratorios">CSV de laboratorios</button><button class="mini" data-accion="csvClasificacion">Clasificación de lácteos y carnes</button></div>
     </details></div>`;
 }
 
@@ -1316,6 +1513,60 @@ function cambiarPlan(mutar) {
   if (cambios.length) Datos.registrar("plan-cambiado", pac.id, { cambios, sugerido: plan.sugerido || null });
 }
 
+// Todo cambio del cuestionario pasa por acá: guarda y anota en el historial
+// qué pregunta (o qué comida del recordatorio) cambió, con antes y después.
+function cambiarCuestionario(mutar) {
+  const pac = paciente(); if (!pac) return;
+  const q = cuestionarioDe(pac), antes = JSON.parse(JSON.stringify(q));
+  mutar(q);
+  q.modificado = new Date().toISOString();
+  Datos.guardar("cuestionarios", q);
+  const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b), cambios = [];
+  [...new Set([...Object.keys(antes.respuestas), ...Object.keys(q.respuestas)])].forEach((k) => {
+    if (!igual(antes.respuestas[k], q.respuestas[k])) cambios.push({ pregunta: k, antes: antes.respuestas[k] == null ? null : antes.respuestas[k], despues: q.respuestas[k] == null ? null : q.respuestas[k] });
+  });
+  q.recordatorio.forEach((com, c) => { if (!igual(antes.recordatorio[c], com)) cambios.push({ recordatorio: Q.recordatorio.comidas[c], antes: antes.recordatorio[c], despues: com }); });
+  if (cambios.length) Datos.registrar("cuestionario-cambiado", pac.id, { cambios });
+}
+
+// Pasa al borrador lo escrito en el formulario del análisis de laboratorio.
+function leerLab() {
+  const d = leerFormulario("fLab"), b = estado.labEdit.borrador, valor = (s) => { const n = num(s); return n != null && /^[\d.,\s-]+$/.test(s) ? n : s; };
+  b.fecha = d.fecha; b.valores = {};
+  Q.laboratorio.determinaciones.forEach((x) => { if (d["v:" + x.id] || d["i:" + x.id]) b.valores[x.id] = { valor: valor(d["v:" + x.id]), interp: d["i:" + x.id] }; });
+  b.extras = b.extras.map((_, k) => ({ nombre: d["xn:" + k] || "", valor: valor(d["xv:" + k] || ""), interp: d["xi:" + k] || "" }));
+}
+
+// Todas las preguntas del cuestionario, en orden, como [id, texto].
+function idsCuestionario() {
+  const ids = [];
+  Q.secciones.forEach((s) => {
+    if (s.especial === "antropometria") Q.antropometria.parametros.filter((p) => !p.app && !p.suma).forEach((p) => { ids.push(p.id); if (p.id !== Q.antropometria.sagital.campo) ids.push(p.id + ".interp"); });
+    if (s.tabla) s.tabla.filas.forEach((f) => s.tabla.columnas.forEach((c) => ids.push(f.id + "." + c.id)));
+    (s.campos || []).forEach((f) => { ids.push(f.id); (f.detalle || []).forEach((d) => ids.push(d.id)); });
+  });
+  return ids;
+}
+
+// Una fila por cuestionario, con todas las respuestas y el total del recordatorio.
+function filasCSVCuestionarios() {
+  return Datos.cache.cuestionarios.map((q) => {
+    const pac = Datos.cache.pacientes.find((p) => p.id === q.id); if (!pac) return null;
+    const f = { paciente_id: pac.id, sexo: pac.sexo, modificado: q.modificado || null }, t = totalesR24(cuestionarioDe(pac)), c = calculosAntropo(pac, q.respuestas);
+    idsCuestionario().forEach((id) => { f[id] = q.respuestas[id] == null ? null : q.respuestas[id]; });
+    f.riesgo_apnea = c.apnea === "—" ? null : c.apnea;
+    f.r24_kcal = red(t.total.kcal, 0); f.r24_hc_g = red(t.total.hc, 1); f.r24_prot_g = red(t.total.prot, 1); f.r24_grasa_g = red(t.total.grasa, 1); f.r24_anotaciones_sin_sumar = t.libres;
+    return f;
+  }).filter(Boolean);
+}
+
+// Una fila por determinación de cada análisis de laboratorio.
+function filasCSVLaboratorios() {
+  return Datos.cache.laboratorios.flatMap((l) => [
+    ...Q.laboratorio.determinaciones.filter((d) => l.valores[d.id]).map((d) => ({ paciente_id: l.pacienteId, analisis_id: l.id, fecha: l.fecha, determinacion: d.id, valor: l.valores[d.id].valor, interpretacion: l.valores[d.id].interp || null })),
+    ...(l.extras || []).map((x) => ({ paciente_id: l.pacienteId, analisis_id: l.id, fecha: l.fecha, determinacion: "otra: " + x.nombre, valor: x.valor, interpretacion: x.interp || null }))]);
+}
+
 // Texto CSV (separado por comas, punto decimal) a partir de filas de objetos.
 function aCSV(filas) {
   if (!filas.length) return "";
@@ -1388,7 +1639,7 @@ function descargar(nombre, texto, tipo) {
 }
 
 const ACCIONES = {
-  abrir: (el) => { estado.vista = "paciente"; estado.pacienteId = el.dataset.id; estado.pestana = "evaluacion"; estado.borrador = null; estado.editando = null; estado.recetaEdit = null; },
+  abrir: (el) => { estado.vista = "paciente"; estado.pacienteId = el.dataset.id; estado.pestana = "evaluacion"; estado.borrador = null; estado.editando = null; estado.recetaEdit = null; estado.labEdit = null; },
   nuevoPaciente: () => { estado.vista = "nuevoPaciente"; },
   cancelar: () => { if (estado.vista === "nuevoPaciente") estado.vista = "pacientes"; estado.editando = null; },
   guardarPaciente,
@@ -1399,10 +1650,11 @@ const ACCIONES = {
     medicionesDe(p.id).forEach((m) => Datos.borrar("mediciones", m.id));
     // Al eliminar un paciente se elimina también su historial de cambios.
     Datos.cache.eventos.filter((ev) => ev.pacienteId === p.id).forEach((ev) => Datos.borrar("eventos", ev.id));
+    Datos.borrar("cuestionarios", p.id); labsDe(p.id).forEach((l) => Datos.borrar("laboratorios", l.id));
     Datos.borrar("planes", p.id); Datos.borrar("pacientes", p.id);
     estado.vista = "pacientes"; estado.editando = null; avisar("Paciente eliminado.");
   },
-  pestana: (el) => { estado.pestana = el.dataset.p; estado.borrador = null; estado.recetaEdit = null; },
+  pestana: (el) => { estado.pestana = el.dataset.p; estado.borrador = null; estado.recetaEdit = null; estado.labEdit = null; },
   nuevaMedicion: () => { const f = ahoraLocal(); estado.borrador = { fecha: f, fechaInicial: f }; },
   cancelarMedicion: () => { estado.borrador = null; },
   revisarMedicion,
@@ -1519,6 +1771,57 @@ const ACCIONES = {
     else { caja.select(); document.execCommand("copy"); }
     avisar("Lista copiada. Pegala en WhatsApp, notas o donde quieras.");
   },
+  // ----- cuestionario: recordatorio de 24 horas -----
+  agregarR24: (el) => {
+    const c = Number(el.dataset.c), texto = document.getElementById("r24buscar" + c).value.trim(), min = texto.toLowerCase();
+    const lib = Datos.cache.preparaciones.find((x) => etiquetaReceta(x) === texto || x.nombre.toLowerCase() === min);
+    if (lib) return cambiarCuestionario((q) => q.recordatorio[c].items.push({ receta: copiaDeReceta(lib), factor: 1 }));
+    const a = ALIMENTOS.find((x) => etiquetaAlimento(x) === texto) || ALIMENTOS.find((x) => x.nombre.toLowerCase() === min);
+    if (!a) return avisar(texto ? `"${texto}" no está en la lista de alimentos. Elegí uno de la lista o usá "Anotar como texto" (no entra en la suma).` : "Elegí un alimento o una receta de la lista.", "mal");
+    cambiarCuestionario((q) => q.recordatorio[c].items.push({ alimentoId: a.id, gramos: a.cantidad }));
+  },
+  anotarR24: (el) => {
+    const c = Number(el.dataset.c), texto = document.getElementById("r24buscar" + c).value.trim();
+    if (!texto) return avisar("Escribí en el buscador lo que querés anotar.", "mal");
+    cambiarCuestionario((q) => q.recordatorio[c].items.push({ texto }));
+    avisar("Anotado como texto. No entra en la suma de calorías ni macros.", "avi");
+  },
+  quitarR24: (el) => cambiarCuestionario((q) => q.recordatorio[Number(el.dataset.c)].items.splice(Number(el.dataset.j), 1)),
+  // ----- cuestionario: laboratorio -----
+  nuevoLab: () => {
+    // Las determinaciones agregadas a mano en análisis anteriores se ofrecen de nuevo.
+    const nombres = [...new Set(Datos.cache.laboratorios.flatMap((l) => (l.extras || []).map((x) => x.nombre)))];
+    estado.labEdit = { id: null, borrador: { fecha: new Date().toISOString().slice(0, 10), valores: {}, extras: nombres.map((nombre) => ({ nombre, valor: "", interp: "" })) } };
+  },
+  editarLab: (el) => {
+    const l = Datos.cache.laboratorios.find((x) => x.id === el.dataset.id);
+    estado.labEdit = { id: l.id, borrador: JSON.parse(JSON.stringify({ fecha: l.fecha, valores: l.valores, extras: l.extras || [] })) };
+  },
+  agregarDeterminacion: () => { leerLab(); estado.labEdit.borrador.extras.push({ nombre: "", valor: "", interp: "" }); },
+  cancelarLab: () => { estado.labEdit = null; },
+  guardarLab: () => {
+    leerLab();
+    const e = estado.labEdit, b = e.borrador;
+    if (!b.fecha) return avisar("Poné la fecha del análisis.", "mal");
+    const con = (x) => x.valor !== "" && x.valor != null;
+    const valores = Object.fromEntries(Object.entries(b.valores).filter(([, x]) => con(x)));
+    if (b.extras.some((x) => con(x) && !x.nombre)) return avisar("Poné el nombre de la determinación que agregaste.", "mal");
+    const extras = b.extras.filter((x) => x.nombre && con(x));
+    if (!Object.keys(valores).length && !extras.length) return avisar("Cargá al menos un valor.", "mal");
+    const previo = e.id ? Datos.cache.laboratorios.find((x) => x.id === e.id) : null;
+    const lab = { id: e.id || Datos.nuevoId(), pacienteId: estado.pacienteId, fecha: b.fecha, valores, extras };
+    Datos.guardar("laboratorios", lab);
+    Datos.registrar(previo ? "laboratorio-editado" : "laboratorio-creado", lab.pacienteId, { antes: previo || null, despues: lab });
+    estado.labEdit = null; avisar("Análisis guardado.");
+  },
+  borrarLab: (el) => {
+    const l = Datos.cache.laboratorios.find((x) => x.id === el.dataset.id);
+    if (!confirm(`¿Eliminar el análisis del ${fechaCorta(l.fecha + "T12:00")}?`)) return;
+    Datos.borrar("laboratorios", l.id); Datos.registrar("laboratorio-borrado", l.pacienteId, { antes: l });
+    avisar("Análisis eliminado.");
+  },
+  csvCuestionarios: () => descargar(`cuestionarios-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVCuestionarios()), "text/csv"),
+  csvLaboratorios: () => descargar(`laboratorios-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVLaboratorios()), "text/csv"),
   csvMediciones: () => descargar(`mediciones-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVMediciones()), "text/csv"),
   csvPlanes: () => descargar(`planes-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVPlanes()), "text/csv"),
   csvClasificacion: () => descargar("clasificacion-lacteos-carnes.csv", aCSV(filasCSVClasificacion()), "text/csv"),
@@ -1532,6 +1835,8 @@ document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-accion]");
   if (!el || !ACCIONES[el.dataset.accion]) return;
   e.preventDefault();
+  // Si hay un análisis de laboratorio a medio cargar, se conserva lo escrito.
+  if (estado.labEdit && document.getElementById("fLab")) leerLab();
   try { ACCIONES[el.dataset.accion](el); }
   catch (err) { console.error(err); avisar("Ocurrió un error: " + err.message + ". Abrí la consola (F12) y copiá el detalle.", "mal"); }
   dibujar();
@@ -1541,6 +1846,8 @@ document.addEventListener("click", (e) => {
 // cada tecla: así no se pierde el foco mientras se escribe.
 document.addEventListener("change", (e) => {
   const el = e.target, d = el.dataset;
+  if (el.closest("#fLab")) return;   // el análisis de laboratorio se lee al guardar
+  if (estado.labEdit && document.getElementById("fLab")) leerLab();
   if (el.id === "archivoImportar") {
     const lector = new FileReader();
     lector.onload = () => {
@@ -1570,6 +1877,17 @@ document.addEventListener("change", (e) => {
     if (!p.porcionesReparto[g]) p.porcionesReparto[g] = C.comidas.map(() => 0);
     p.porcionesReparto[g][c] = num(el.value) || 0;
   });
+  else if (d.q) {
+    // Respuesta del cuestionario: se guarda sin volver a dibujar la pantalla,
+    // para no perder el foco ni cerrar el teclado del celular entre campos.
+    cambiarCuestionario((q) => { const v = el.value.trim(); if (v === "") delete q.respuestas[d.q]; else q.respuestas[d.q] = v; });
+    const pac = paciente(), calc = calculosAntropo(pac, cuestionarioDe(pac).respuestas);
+    document.querySelectorAll("[data-calc]").forEach((x) => { x.textContent = calc[x.dataset.calc]; });
+    return;
+  }
+  else if (d.r24) { const [campo, c] = d.r24.split(":"); cambiarCuestionario((q) => { q.recordatorio[Number(c)][campo] = el.value.trim(); }); return; }
+  else if (d.r24Gramos) cambiarCuestionario((q) => { const [c, j] = d.r24Gramos.split(":").map(Number), v = num(el.value); if (v != null && v >= 0) q.recordatorio[c].items[j].gramos = v; });
+  else if (d.r24Factor) cambiarCuestionario((q) => { const [c, j] = d.r24Factor.split(":").map(Number), v = num(el.value); if (v != null && v > 0) q.recordatorio[c].items[j].factor = v; });
   else if (d.rec) { estado.recetaEdit.borrador[d.rec] = el.value; return; }
   else if (d.recCant != null) { leerCamposReceta(); const v = num(el.value); if (v != null && v > 0) estado.recetaEdit.borrador.ingredientes[Number(d.recCant)].cantidad = v; }
   else if (d.recModo != null) {

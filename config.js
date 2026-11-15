@@ -9,13 +9,15 @@
      objetivo (decisión del nutricionista: en esos dos puntos manda el Excel).
    - Rotafolio Guías Alimentarias del Paraguay 2021: porciones por grupo.
    - Guía de intercambio de alimentos (MINSA Perú, 2014): aporte por porción.
+   - "Ficha de evaluación – PPS Adultos" (Universidad Autónoma de Asunción):
+     preguntas del cuestionario y tablas de riesgo de apnea y perímetro sagital.
 
    Convención de las tablas de rangos: cada fila dice "hasta" (límite
    superior EXCLUSIVO). Se recorre de arriba hacia abajo y gana la primera
    fila cuyo "hasta" sea mayor que el valor. "hasta: null" = sin límite.
    ========================================================================== */
 window.CONFIG = {
-  version: "4.0 — adultos",
+  version: "4.1 — adultos",
 
   /* ---------- Validación de carga (plausibilidad, no criterio clínico) ---------- */
   validacion: {
@@ -406,5 +408,138 @@ window.CONFIG = {
       { nombre: "Carnes y huevos", tipos: ["carne_alta", "carne_magra"], sinTipo: "carne_alta" },
       "legumbres", "azucares", "aceites",
     ],
+  },
+
+  /* ---------- Cuestionario (Ficha de evaluación – PPS Adultos, páginas 2 a 6) ---------- */
+  // Las preguntas están escritas como en la ficha y en su mismo orden. No se
+  // incluyen, por decisión del nutricionista, el examen físico ni la fecha.
+  //
+  // Cada pregunta tiene un "id" fijo: con ese id se guarda la respuesta.
+  // NO cambiar los id (se perdería el enlace con lo ya respondido). El texto
+  // visible sí se puede cambiar, y se pueden agregar preguntas nuevas.
+  //
+  // tipo: "texto" (por defecto), "largo" (varios renglones), "numero",
+  //       "fecha", "sino" (Si / No) u "opcion" (con su lista de "opciones").
+  // soloSexo: la pregunta aparece solo en pacientes de ese sexo.
+  // detalle: preguntas que acompañan a la principal (cantidad, describir…).
+  // tabla: filas × columnas; cada casilla se guarda como "fila.columna".
+  cuestionario: {
+    sino: ["Si", "No"],
+    secciones: [
+      { id: "datos", titulo: "Ficha de evaluación", campos: [
+        { id: "estado_civil", texto: "Estado Civil" },
+        { id: "ocupacion", texto: "Profesión u ocupación" },
+        { id: "valorado_por", texto: "Valorado por" },
+        { id: "fum", texto: "¿Cuándo fue su último período? (FUM)", tipo: "fecha", soloSexo: "mujer" },
+      ] },
+      { id: "app", titulo: "Antecedentes patológicos personales",
+        tabla: { titulo: "Signos Vitales", columnas: [{ id: "valor", texto: "Valor" }, { id: "dx", texto: "Diagnostico" }],
+          filas: [{ id: "pa", texto: "Presion Arterial" }, { id: "fc", texto: "Frecuencia Cardiaca" }, { id: "fr", texto: "Frecuencia Respiratoria" }, { id: "temp", texto: "Tº axilar" }] },
+        campos: [
+          { id: "patologias", texto: "Patologias diagnosticadas", tipo: "largo" },
+          { id: "alergia_alim", texto: "Alergia alimentaria" },
+          { id: "intolerancia_alim", texto: "Intolerancia alimentaria" },
+          { id: "farmacos", texto: "Tratamiento farmacologico", tipo: "sino", detalle: [{ id: "farmacos_esp", texto: "Especificar" }] },
+        ] },
+      { id: "apf", titulo: "Antecedentes patológicos familiares",
+        tabla: { titulo: "Patologias", columnas: [{ id: "sino", texto: "Si/No", tipo: "sino" }, { id: "familiar", texto: "Familiar" }],
+          filas: [{ id: "apf_obesidad", texto: "Obesidad" }, { id: "apf_hta", texto: "HTA" }, { id: "apf_ecv", texto: "ECV" }, { id: "apf_ca", texto: "Ca" },
+                  { id: "apf_hipercol", texto: "Hipercolesterolemia" }, { id: "apf_hipertg", texto: "Hipertrigliceridemia" }, { id: "apf_dm", texto: "Diabetes Mellitus" }, { id: "apf_alergias", texto: "Alergias" }] },
+        campos: [{ id: "apf_obs", texto: "Observaciones", tipo: "largo" }] },
+      { id: "gi", titulo: "Síntomas gastrointestinales",
+        tabla: { columnas: [{ id: "sino", texto: "Si/No", tipo: "sino" }, { id: "detalle", texto: "Detalle (opcional)" }],
+          filas: [{ id: "gi_nauseas", texto: "Nauseas" }, { id: "gi_vomitos", texto: "Vómitos" }, { id: "gi_diarrea", texto: "Diarrea" }, { id: "gi_constipacion", texto: "Constipación" },
+                  { id: "gi_disfagia", texto: "Disfagia" }, { id: "gi_odinofagia", texto: "Odinofagia" }, { id: "gi_pirosis", texto: "Pirosis" }, { id: "gi_flatulencia", texto: "Flatulencia" }] } },
+      { id: "lab", titulo: "Datos de laboratorio", especial: "laboratorio" },
+      { id: "antropo", titulo: "Datos antropométricos", especial: "antropometria" },
+      { id: "anamnesis", titulo: "Anamnesis clínico-nutricional", campos: [
+        { id: "fuma", texto: "Fuma", tipo: "sino", detalle: [{ id: "fuma_cant", texto: "Cantidad/día" }, { id: "fuma_tiempo", texto: "Tiempo" }] },
+        { id: "alcohol", texto: "Bebidas alcohólicas", tipo: "sino", detalle: [{ id: "alcohol_frec", texto: "Frec. semanal" }, { id: "alcohol_tipo", texto: "Tipo de bebida" }] },
+        { id: "agua", texto: "Agua", tipo: "sino", detalle: [{ id: "agua_cant", texto: "Cantidad/día" }] },
+        { id: "jugos_nat", texto: "Jugos naturales", tipo: "sino", detalle: [{ id: "jugos_nat_cant", texto: "Cantidad/día" }] },
+        { id: "jugos_env", texto: "Jugos envasados", tipo: "sino", detalle: [{ id: "jugos_env_cant", texto: "Cantidad/día" }] },
+        { id: "carbonatadas", texto: "Bebidas carbonatadas", tipo: "sino", detalle: [{ id: "carbonatadas_cant", texto: "Cantidad/día" }] },
+        { id: "plan_previo", texto: "Realizo algún tipo de plan alimentario", tipo: "sino", detalle: [
+          { id: "plan_previo_tiempo", texto: "Tiempo" }, { id: "plan_previo_desc", texto: "Describir", tipo: "largo" },
+          { id: "plan_previo_result", texto: "Resultados obtenidos" }, { id: "plan_previo_abandono", texto: "Motivos de abandono" }] },
+        { id: "suplementos", texto: "Toma suplementos a base de vitaminas y minerales", tipo: "sino", detalle: [
+          { id: "suplementos_desc", texto: "Describir" }, { id: "suplementos_por", texto: "Indicado por" }] },
+        { id: "ronca", texto: "Durante el sueño, acostumbra roncar", tipo: "sino" },
+        { id: "jadea", texto: "Durante el sueño, acostumbra jadear", tipo: "sino" },
+        { id: "unas_quebradizas", texto: "Uñas quebradizas", tipo: "sino" },
+        { id: "caida_cabello", texto: "Caída de cabello", tipo: "sino" },
+        { id: "diuresis", texto: "Diuresis", tipo: "sino" },
+        { id: "apetito", texto: "Su apetito es", tipo: "opcion", opciones: ["Voraz", "Bueno", "Regular", "Malo"] },
+        { id: "apetito_entre", texto: "Siente apetito entre comidas", tipo: "opcion", opciones: ["Si", "No", "A veces"], detalle: [{ id: "apetito_entre_desc", texto: "Describir" }] },
+        { id: "edulcorantes", texto: "Consume edulcorantes", tipo: "sino", detalle: [{ id: "edulcorantes_desc", texto: "Describir" }] },
+      ] },
+      { id: "r24", titulo: "Recordatorio de 24 horas", especial: "recordatorio" },
+      { id: "frecuencia", titulo: "Cuestionario frecuencia de consumo alimentario",
+        tabla: { columnas: [{ id: "tipo", texto: "Tipo" }, { id: "cantidad", texto: "Cantidad" }, { id: "diaria", texto: "Frec. Diaria", tipo: "numero" },
+                            { id: "semanal", texto: "Frec. Semanal", tipo: "numero" }, { id: "mensual", texto: "Frec. Mensual", tipo: "numero" }, { id: "obs", texto: "Obs." }],
+          filas: [
+            { id: "fc_leche", texto: "Leche" }, { id: "fc_yogur", texto: "Yogur" }, { id: "fc_queso", texto: "Queso" }, { id: "fc_carne_vacuna", texto: "Carne vacuna" },
+            { id: "fc_pollo", texto: "Pollo o aves" }, { id: "fc_pescado", texto: "Pescado" }, { id: "fc_visceras", texto: "Vísceras" }, { id: "fc_huevos", texto: "Huevos" },
+            { id: "fc_poroto", texto: "Poroto" }, { id: "fc_lenteja", texto: "Lenteja" }, { id: "fc_garbanzos", texto: "Garbanzos" }, { id: "fc_soja", texto: "Soja" },
+            { id: "fc_papa", texto: "Papa" }, { id: "fc_mandioca", texto: "Mandioca" }, { id: "fc_batata", texto: "Batata" }, { id: "fc_hort_crudas", texto: "Hortalizas crudas" },
+            { id: "fc_hort_cocidas", texto: "Hortalizas cocidas" }, { id: "fc_frutas", texto: "Frutas" }, { id: "fc_panificados", texto: "Panificados" }, { id: "fc_fideos", texto: "Fideos" },
+            { id: "fc_otras_pastas", texto: "Otras pastas" }, { id: "fc_arroz", texto: "Arroz" }, { id: "fc_harinas", texto: "Harinas" }, { id: "fc_pasteleria", texto: "Prod. Pasteleria" },
+            { id: "fc_azucar", texto: "Azúcar de mesa" }, { id: "fc_golosinas", texto: "Golosinas" }, { id: "fc_aceites", texto: "Aceites" }, { id: "fc_manteca", texto: "Manteca/Margarina" },
+            { id: "fc_crema", texto: "Crema de leche" }, { id: "fc_aderezos", texto: "Aderezos comerciales" }, { id: "fc_alcohol", texto: "Bebidas alcohólicas" }, { id: "fc_carbonatadas", texto: "Bebidas carbonatadas" },
+            { id: "fc_jugos", texto: "Jugos comerciales" }, { id: "fc_gelatinas", texto: "Gelatinas" }, { id: "fc_infusiones", texto: "Infusiones" }, { id: "fc_otros", texto: "Otros" },
+          ] } },
+      { id: "cierre", titulo: "Conclusiones", campos: [
+        { id: "conclusiones", texto: "Conclusiones", tipo: "largo" },
+        { id: "evaluado_nombre", texto: "Evaluado por: Nombre y Apellido" },
+        { id: "evaluado_ci", texto: "CI Nº" },
+      ] },
+    ],
+
+    // Laboratorio: se pueden cargar varios análisis por paciente, cada uno con
+    // su fecha. Para agregar una determinación fija, sumar un renglón acá con
+    // un id nuevo. Desde la app también se agregan determinaciones sueltas.
+    // "interpretaciones" es la lista para elegir en cada valor (la ficha no
+    // trae valores de referencia: la interpretación la decide el nutricionista).
+    laboratorio: {
+      interpretaciones: ["Bajo", "Normal", "Alto"],
+      determinaciones: [
+        { id: "gr", texto: "GR" }, { id: "hb", texto: "Hb" }, { id: "hto", texto: "Hto" }, { id: "gb", texto: "GB" }, { id: "linfocitos", texto: "Linfocitos" },
+        { id: "rtl", texto: "RTL" }, { id: "plaquetas", texto: "Plaquetas" }, { id: "prot_totales", texto: "Proteinas Totales" }, { id: "albumina", texto: "Albumina" },
+        { id: "rel_alb_glob", texto: "Rel Album/Globulina" }, { id: "col_total", texto: "Colest Total" }, { id: "ldl", texto: "LDL" }, { id: "hdl", texto: "HDL" },
+        { id: "tg", texto: "TG" }, { id: "glucosa", texto: "Glucosa" }, { id: "urea", texto: "Urea" }, { id: "creatinina", texto: "Creatinina" },
+        { id: "ac_urico", texto: "Acido Urico" }, { id: "got", texto: "GOT" }, { id: "gpt", texto: "GPT" }, { id: "fosfatasa_alc", texto: "Fosfatasa Alc" },
+      ],
+    },
+
+    // Datos antropométricos, en el orden de la ficha.
+    //  - app: lo calcula o ya lo tiene la app (última medición); no se vuelve a cargar.
+    //  - sin "app": se carga a mano (valor e interpretación).
+    //  - suma: se calcula sumando esos campos (solo si están los cuatro).
+    antropometria: {
+      parametros: [
+        { id: "an_peso", texto: "Peso Corporal Actual", app: "peso" }, { id: "an_talla", texto: "Talla", app: "talla" },
+        { id: "an_peso_hab", texto: "Peso Habitual", app: "pesoHabitual" }, { id: "an_pct_hab", texto: "% Peso Habitual", app: "pctHabitual" },
+        { id: "an_peso_ideal", texto: "Peso Ideal", app: "pesoIdeal" }, { id: "an_pct_ideal", texto: "% Peso Ideal", app: "pctIdeal" },
+        { id: "an_peso_aj", texto: "Peso Ajustado", app: "pesoAjustado" }, { id: "an_imc", texto: "IMC", app: "imc" },
+        { id: "an_peso_seco", texto: "Peso Seco" }, { id: "an_cintura", texto: "Cia. Cintura", app: "cintura" },
+        { id: "an_perdida", texto: "% Pérdida de peso", app: "perdida" }, { id: "an_contextura", texto: "Contextura", app: "contextura" },
+        { id: "an_muneca", texto: "Cia Muñeca", app: "muneca" }, { id: "an_cuello", texto: "Cia. de Cuello" },
+        { id: "an_braquial", texto: "Cia Braquial" }, { id: "an_pct", texto: "PCT" },
+        { id: "an_pantorrilla", texto: "Pantorrilla" }, { id: "an_pcb", texto: "PCB" },
+        { id: "an_agua", texto: "% Agua" }, { id: "an_pcse", texto: "PCSE" },
+        { id: "an_grasa", texto: "%Grasa", app: "grasa" }, { id: "an_pcsi", texto: "PCSI" },
+        { id: "an_deurenberg", texto: "% Grasa Deurenberg", app: "deurenberg" }, { id: "an_suma4", texto: "Suma 4 pliegues", suma: ["an_pct", "an_pcb", "an_pcse", "an_pcsi"] },
+        { id: "an_rcv", texto: "RCV según cintura", app: "rcv" }, { id: "an_cmb", texto: "CMB" },
+        { id: "an_apnea", texto: "Riesgo apnea del sueño", app: "apnea" }, { id: "an_sagital", texto: "Perímetro sagital" },
+      ],
+      // Tabla de la ficha. Cuello: Bajo < 43 cm; Medio 43 a 48 cm; Alto > 48 cm.
+      apnea: { campo: "an_cuello", bajoMenorA: 43, altoMayorA: 48 },
+      // Tabla de la ficha. Riesgo metabólico si el perímetro sagital supera
+      // este valor (cm): mujeres > 25, hombres > 23.
+      sagital: { campo: "an_sagital", riesgoMayorA: { mujer: 25, hombre: 23 } },
+    },
+
+    // Comidas del recordatorio, en el orden de la ficha.
+    recordatorio: { comidas: ["Desayuno", "Media Mañana", "Almuerzo", "Merienda", "Cena", "Colación"] },
   },
 };
