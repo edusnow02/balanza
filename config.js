@@ -15,7 +15,7 @@
    fila cuyo "hasta" sea mayor que el valor. "hasta: null" = sin límite.
    ========================================================================== */
 window.CONFIG = {
-  version: "2.0 — adultos",
+  version: "3.0 — adultos",
 
   /* ---------- Validación de carga (plausibilidad, no criterio clínico) ---------- */
   validacion: {
@@ -294,9 +294,19 @@ window.CONFIG = {
   /* ---------- Proteínas de alto valor biológico ---------- */
   pavb: { grupos: ["Lácteos", "Carnes", "Huevos"] },
 
-  /* ---------- Porciones recomendadas (Guías Alimentarias del Paraguay 2021) ---------- */
-  // Valores de referencia para población sana. La app los SUGIERE; el
-  // nutricionista decide. Columnas: edad mínima y máxima inclusive.
+  /* ---------- Porciones por grupo (Guías Alimentarias del Paraguay 2021) ---------- */
+  // La guía paraguaya manda: grupos, porciones sugeridas por edad y sexo, y
+  // la equivalencia de una porción. La app las SUGIERE; el nutricionista decide.
+  //
+  // "aporte" = calorías y macros de UNA porción del grupo. La guía paraguaya
+  // no lo trae, así que se completa así (decisión del nutricionista):
+  //  - Cereales, Panificados, Verduras, Azúcares: Guía de intercambio de
+  //    alimentos (MINSA Perú 2014).
+  //  - Frutas, Legumbres, Aceites: tabla de alimentos propia, porque la
+  //    porción peruana no coincide con la paraguaya (1 manzana de 140 g,
+  //    50 g de lenteja, 5 g de aceite).
+  //  - Leche y Carnes: la guía peruana tiene más de una fila; se elige la
+  //    "variante" en cada paciente.
   porciones: {
     columnas: [
       { id: "a19h", nombre: "Adultos 19–29, hombre", edadMin: 19, edadMax: 29,  sexo: "hombre", kcal: 2550 },
@@ -307,48 +317,55 @@ window.CONFIG = {
       { id: "a60m", nombre: "Adultos mayores (60 o más), mujer",  edadMin: 60, edadMax: 200, sexo: "mujer",  kcal: 1700 },
     ],
     grupos: [
-      { nombre: "Cereales, tubérculos y derivados",
+      { nombre: "Cereales, tubérculos y derivados", corto: "Cereales",
         porcion: "90 g arroz cocido (¼ plato) · 200 g polenta (¼ plato) · 90 g fideo cocido (¼ plato) · 100 g mandioca cocida · 200 g papa cocida (¼ plato) · 185 g batata cocida (¼ plato)",
+        aporte: { kcal: 135, hc: 25, prot: 5, grasa: 1 },
         valores: { a19h: "6", a19m: "4", a30h: "6", a30m: "3", a60h: "3", a60m: "2" } },
-      { nombre: "Panificados",
+      { nombre: "Panificados", corto: "Panificados",
         porcion: "50 g galleta (1 un.) · 50 g pan felipe (1 un.) · 50 g palito/coquito (10 un.) · 65 g pan de sándwich (2 rebanadas) · 55 g rosquita (4 un.) · 50 g pan árabe (1½ un.) · 30 g galletita de agua (8 un.)",
+        aporte: { kcal: 135, hc: 25, prot: 5, grasa: 1 },
         valores: { a19h: "2", a19m: "2", a30h: "2", a30m: "2", a60h: "2", a60m: "2" } },
-      { nombre: "Verduras",
+      { nombre: "Verduras", corto: "Verduras",
         porcion: "100 g verduras crudas (1 taza o ½ plato) · 100 g verduras cocidas (1 taza o ½ plato)",
+        aporte: { kcal: 25, hc: 5, prot: 1, grasa: 0 },
         valores: { a19h: "4", a19m: "4", a30h: "4", a30m: "4", a60h: "4", a60m: "3" } },
-      { nombre: "Frutas",
+      { nombre: "Frutas", corto: "Frutas",
         porcion: "140 g manzana (1 un.) · 120 g pera (1 un.) · 110 g banana (1 un.) · 180 g naranja (1 un.) · 90 g mamón (¾ taza) · 130 g piña (¾ taza) · 120 g uva (¾ taza) · 120 g kiwi (1 un.) · 250 g acerola (1 taza)",
+        aporte: { kcal: 90.4, hc: 21.3, prot: 0.4, grasa: 0.4 },
         valores: { a19h: "3", a19m: "3", a30h: "3", a30m: "3", a60h: "3", a60m: "3" } },
-      { nombre: "Leche y derivados",
+      { nombre: "Leche y derivados", corto: "Leche",
         porcion: "200 ml leche (1 taza) · 200 g yogur (1 taza) · 30 g queso (1 feta) · 25 g queso rallado (5 cucharadas)",
+        variantes: [
+          { nombre: "Lácteos altos en grasa", kcal: 130, hc: 10, prot: 7,  grasa: 7 },
+          { nombre: "Lácteos bajos en grasa", kcal: 65,  hc: 10, prot: 5,  grasa: 1 },
+          { nombre: "Quesos altos en grasa",  kcal: 130, hc: 1,  prot: 10, grasa: 9 },
+        ],
         valores: { a19h: "4", a19m: "3-4", a30h: "4", a30m: "3-4", a60h: "3-4", a60m: "3-4" } },
-      { nombre: "Carnes y huevos",
+      { nombre: "Carnes y huevos", corto: "Carnes",
         porcion: "50 g carne vacuna/hígado · 50 g carne molida (1 cucharada colmada) · 50 g pollo (1 muslo) · 50 g pescado (1 palma) · 50 g atún enlatado (2 cucharadas) · 50 g huevo de gallina (1 un.) · 50 g carne de cerdo · 44 g huevo de codorniz (4 un.)",
+        variantes: [
+          { nombre: "Carnes altas en grasa", kcal: 130, hc: 0, prot: 12, grasa: 9 },
+          { nombre: "Carnes bajas en grasa", kcal: 55,  hc: 0, prot: 11, grasa: 1 },
+        ],
         valores: { a19h: "4", a19m: "4", a30h: "4", a30m: "3", a60h: "4", a60m: "3-4" } },
-      { nombre: "Legumbres secas",
+      { nombre: "Legumbres secas", corto: "Legumbres",
         porcion: "50 g de porotos / lenteja / arveja (¼ taza o 4 cucharadas)",
+        aporte: { kcal: 175.3, hc: 30, prot: 12.3, grasa: 0.7 },
         valores: { a19h: "1", a19m: "1", a30h: "1", a30m: "1", a60h: "1", a60m: "1" } },
-      { nombre: "Azúcares y mieles",
+      { nombre: "Azúcares y mieles", corto: "Azúcares",
         porcion: "5 g azúcar (1 cucharadita) · 6 g miel (1 cucharadita) · 5 g dulce (1 cucharadita)",
+        aporte: { kcal: 20, hc: 6, prot: 0, grasa: 0 },
         valores: { a19h: "4", a19m: "4", a30h: "4", a30m: "4", a60h: "4", a60m: "4" } },
-      { nombre: "Aceites y grasas",
+      { nombre: "Aceites y grasas", corto: "Aceites",
         porcion: "5 ml aceite (1 cucharada) · 12 g mayonesa (1 cucharada) · 6 g margarina (1 cucharada) · 8 g maní (12 un.)",
+        aporte: { kcal: 45, hc: 0, prot: 0, grasa: 5 },
         valores: { a19h: "4", a19m: "3", a30h: "4", a30m: "3", a60h: "3", a60m: "2" } },
     ],
+    // A qué grupo de porciones cuenta cada grupo de la tabla de alimentos
+    // (posición en la lista de arriba, empezando en 0). Se usa solo para la
+    // guía "cuánto llevás cubierto" del plan semanal, que es aproximada.
+    // Los grupos que no figuran acá (por ejemplo "Otros") no se cuentan.
+    grupoDeAlimento: { "Cereales": 0, "Panificados": 1, "Vegetales": 2, "Frutas": 3, "Lácteos": 4, "Carnes": 5, "Huevos": 5,
+                       "Legumbres": 6, "Dulces": 7, "Grasas": 8, "Frutos secos": 8 },
   },
-
-  /* ---------- Intercambios: aporte por porción (Guía MINSA Perú 2014) ---------- */
-  intercambios: [
-    { grupo: "Cereales, tubérculos y menestras", kcal: 135, prot: 5,  grasa: 1,  hc: 25 },
-    { grupo: "Verduras",                         kcal: 25,  prot: 1,  grasa: 0,  hc: 5 },
-    { grupo: "Frutas",                           kcal: 55,  prot: 1,  grasa: 1,  hc: 13 },
-    { grupo: "Lácteos altos en grasa",           kcal: 130, prot: 7,  grasa: 7,  hc: 10 },
-    { grupo: "Lácteos bajos en grasa",           kcal: 65,  prot: 5,  grasa: 1,  hc: 10 },
-    { grupo: "Quesos altos en grasa",            kcal: 130, prot: 10, grasa: 9,  hc: 1 },
-    { grupo: "Carnes, pescados y huevos altos en grasa", kcal: 130, prot: 12, grasa: 9, hc: 0 },
-    { grupo: "Carnes, pescados y huevos bajos en grasa", kcal: 55,  prot: 11, grasa: 1, hc: 0 },
-    { grupo: "Azúcares y derivados",             kcal: 20,  prot: 0,  grasa: 0,  hc: 6 },
-    { grupo: "Aceites",                          kcal: 90,  prot: 0,  grasa: 10, hc: 0 },
-    { grupo: "Oleaginosas",                      kcal: 110, prot: 4,  grasa: 10, hc: 4 },
-  ],
 };
