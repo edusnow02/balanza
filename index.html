@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Apoyo Nutricional</title>
+<link rel="icon" href="data:,">
 <style>
   :root { --tinta:#1c2421; --suave:#5b6762; --linea:#d9dfdb; --fondo:#f4f6f3; --panel:#fff;
           --marca:#1f6f54; --marca2:#e3f1eb; --ok:#1a7f4b; --okf:#e2f4e9; --mal:#b3261e; --malf:#fbe6e4; --avi:#8a5a00; --avif:#fdf1d7; }
@@ -11,7 +12,9 @@
   body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--tinta); background:var(--fondo); font-size:16px; line-height:1.4; }
   header { background:var(--marca); color:#fff; padding:10px 14px; display:flex; gap:8px; align-items:center; }
   header h1 { font-size:1.05rem; margin:0; font-weight:650; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  header button { background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.35); }
+  header button { background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.35); padding:8px 10px; font-size:.9rem; }
+  input.mat { width:54px; padding:5px 3px; font:inherit; border:1px solid #9aa8a1; border-radius:6px; text-align:center; }
+  select.mini { font:inherit; font-size:.85rem; padding:5px; border:1px solid #9aa8a1; border-radius:6px; background:#fff; }
   main { max-width:1000px; margin:0 auto; padding:12px; }
   nav.pest { display:flex; gap:6px; overflow-x:auto; padding:2px 0 10px; }
   nav.pest button { white-space:nowrap; border-radius:999px; }
@@ -51,11 +54,16 @@
   .grande { font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; }
   svg text { font-size:11px; fill:var(--suave); }
   .solo-impresion { display:none; }
+  /* En pantallas angostas el título ocupa su propio renglón y los botones quedan debajo. */
+  @media (max-width:520px) { header { flex-wrap:wrap; } header h1 { flex:1 1 100%; } header button { flex:1; } }
   @media print {
     header, nav.pest, .no-imprimir, button { display:none !important; }
     body { background:#fff; font-size:11pt; }
     main { max-width:none; padding:0; }
-    .panel { border:0; padding:0 0 8px; break-inside:avoid; }
+    .panel { border:0; padding:0 0 8px; }
+    tr, .dato, svg { break-inside:avoid; }
+    h2, h3 { break-after:avoid; }
+    .scroll { overflow:visible; }
     .solo-impresion { display:block; }
   }
 </style>
@@ -64,6 +72,7 @@
 <header>
   <h1>Apoyo Nutricional</h1>
   <button id="btnPacientes">Pacientes</button>
+  <button id="btnPreparaciones">Preparaciones</button>
   <button id="btnAjustes">Ajustes</button>
 </header>
 <main id="app"></main>
@@ -116,9 +125,11 @@ const Motor = (() => {
     if (!fila) return { valor: null, motivo: "la talla está fuera de la tabla Metropolitan" };
     let col, criterio;
     if (edad >= pi.edadPorContextura[0] && edad <= pi.edadPorContextura[1]) {
-      if (!contexturaNombre) return { valor: null, motivo: "falta la circunferencia de muñeca para saber la contextura" };
+      // Sin muñeca no hay contextura: se usa la que fija la configuración y se aclara.
+      const supuesta = !contexturaNombre;
+      if (supuesta) contexturaNombre = pi.contexturaSiFaltaMuneca;
       col = pi.columnasEdad.length + ["Pequeña", "Mediana", "Grande"].indexOf(contexturaNombre);
-      criterio = `tabla Metropolitan, contextura ${contexturaNombre.toLowerCase()}`;
+      criterio = `tabla Metropolitan, contextura ${contexturaNombre.toLowerCase()}${supuesta ? " (supuesta: falta la muñeca)" : ""}`;
     } else {
       col = pi.columnasEdad.findIndex(([a, b]) => edad >= a && edad <= b);
       if (col < 0) return { valor: null, motivo: "la edad está fuera de la tabla Metropolitan" };
@@ -238,6 +249,41 @@ const Motor = (() => {
     return t;
   }
 
+  // Reparte un total entre las comidas según sus porcentajes, redondeando al
+  // paso de la configuración. Usa "restos mayores": primero da a cada comida
+  // su parte entera y luego entrega las unidades sobrantes a las comidas que
+  // quedaron más lejos de su parte exacta. Así la suma siempre da el total.
+  function repartir(cfg, total, pcts) {
+    const paso = cfg.reparto.paso, suma = pcts.reduce((a, b) => a + b, 0);
+    if (!(total > 0) || !(suma > 0)) return pcts.map(() => 0);
+    const unidades = Math.round(total / paso);
+    const exactas = pcts.map((p) => unidades * p / suma), enteras = exactas.map(Math.floor);
+    let faltan = unidades - enteras.reduce((a, b) => a + b, 0);
+    exactas.map((e, i) => ({ i, resto: e - enteras[i] })).sort((a, b) => b.resto - a.resto)
+      .forEach(({ i }) => { if (faltan > 0 && pcts[i] > 0) { enteras[i]++; faltan--; } });
+    return enteras.map((u) => u * paso);
+  }
+
+  // Convierte los ingredientes de una preparación en gramos de cada alimento.
+  // modo "u" = cantidad de medidas caseras (ej. 3 tomates medianos de 150 g).
+  // "factor" es cuántas veces se sirve la preparación (0.5 = media porción).
+  function ingredientesEnGramos(prep, alimentoPorId, factor) {
+    return prep.ingredientes.map((ing) => {
+      const alimento = alimentoPorId(ing.alimentoId);
+      if (!alimento) return null;
+      const gramos = (ing.modo === "u" ? ing.cantidad * alimento.cantidad : ing.cantidad) * (factor == null ? 1 : factor);
+      return { alimento, gramos };
+    }).filter(Boolean);
+  }
+
+  // Promedio de los días que tienen algo cargado (los días vacíos no bajan el promedio).
+  function promedioSemana(totalesPorDia) {
+    const dias = totalesPorDia.filter((t) => t.kcal > 0), r = { kcal: 0, hc: 0, prot: 0, grasa: 0, dias: dias.length };
+    if (!dias.length) return r;
+    ["kcal", "hc", "prot", "grasa"].forEach((k) => { r[k] = dias.reduce((a, t) => a + t[k], 0) / dias.length; });
+    return r;
+  }
+
   function adecuacion(cfg, total, meta) {
     if (!(meta > 0)) return { pct: null, ok: false };
     const pct = total * 100 / meta;
@@ -267,9 +313,16 @@ const Motor = (() => {
     ev.cinturaCadera = med.cintura && med.cadera ? cinturaCadera(cfg, pac.sexo, med.cintura, med.cadera) : null;
 
     ev.grasaEstimada = deurenberg(cfg, ev.imc, ev.edad, pac.sexo);
-    ev.grasaPct = med.grasaPct != null ? med.grasaPct : null;
+    // Grasa: kg y % van siempre juntos. Si se cargó uno solo, el otro se
+    // calcula con el peso (kg = peso × % / 100) y se marca como calculado.
+    ev.grasaPct = med.grasaPct != null ? med.grasaPct : med.grasaKg != null ? med.grasaKg * 100 / med.peso : null;
+    ev.grasaPctCalculada = med.grasaPct == null && ev.grasaPct != null;
     ev.grasaClase = ev.grasaPct != null ? grasaBray(cfg, pac.sexo, ev.grasaPct) : null;
-    ev.composicion = ev.grasaPct != null ? composicion(med.peso, ev.grasaPct) : null;
+    // Kilos: se usan los que da AiLink. Solo si no se cargaron los kg de grasa
+    // se calculan como peso × %, y se marca. El músculo nunca se deriva.
+    ev.grasaKg = med.grasaKg != null ? med.grasaKg : ev.grasaPct != null ? med.peso * ev.grasaPct / 100 : null;
+    ev.grasaKgCalculada = med.grasaKg == null && ev.grasaKg != null;
+    ev.musculoKg = med.musculoKg != null ? med.musculoKg : null;
     return ev;
   }
 
@@ -326,12 +379,34 @@ const Motor = (() => {
     caso("Intercambios: 2 cereales + 1 fruta (kcal)", totalIntercambios(cfg, [2, 0, 1]).kcal, 325);
     caso("Adecuación 104 / 100 con ±5 %", adecuacion(cfg, 104, 100).ok, true);
     caso("Adecuación 106 / 100 con ±5 %", adecuacion(cfg, 106, 100).ok, false);
+    caso("Peso ideal sin muñeca, mujer 150 cm, 30 años (mediana supuesta)", pesoIdealTabla(cfg, "mujer", 150, 30, null).valor, 47.25);
+    caso("Peso ideal a los 70 años: sin valor", pesoIdealTabla(cfg, "mujer", 150, 70, null).valor, null);
+    const rp = repartir(cfg, 6, [25, 0, 35, 15, 0, 25]);
+    caso("Reparto de 6 porciones: suma", rp.reduce((a, b) => a + b, 0), 6);
+    caso("Reparto de 6 porciones: almuerzo (35 %)", rp[2], 2);
+    caso("Reparto de 6 porciones: media mañana (0 %)", rp[1], 0);
+    caso("Reparto de 3 porciones: suma", repartir(cfg, 3, [25, 0, 35, 15, 0, 25]).reduce((a, b) => a + b, 0), 3);
+    const tomate = { cantidad: 150, hc: 6.9, prot: 1.2, grasa: 0.5, kcal: 36.9, grupo: "Vegetales" }, arroz = { cantidad: 100, hc: 78, prot: 7, grasa: 0.6, kcal: 345, grupo: "Cereales" };
+    const ing = ingredientesEnGramos({ ingredientes: [{ alimentoId: 1, cantidad: 200, modo: "g" }, { alimentoId: 2, cantidad: 3, modo: "u" }] }, (id) => (id === 1 ? arroz : tomate), 1);
+    caso("Preparación: 3 tomates de 150 g en gramos", ing[1].gramos, 450);
+    caso("Preparación: kcal de 200 g de arroz + 3 tomates", totalesAlimentos(cfg, ing).kcal, 800.7);
+    caso("Preparación a media porción: kcal", totalesAlimentos(cfg, ingredientesEnGramos({ ingredientes: [{ alimentoId: 1, cantidad: 200, modo: "g" }] }, () => arroz, 0.5)).kcal, 345);
+    caso("Promedio semanal (2000 y 1800, cinco días vacíos)", promedioSemana([{ kcal: 2000, hc: 0, prot: 0, grasa: 0 }, { kcal: 1800, hc: 0, prot: 0, grasa: 0 }, { kcal: 0 }, { kcal: 0 }, { kcal: 0 }, { kcal: 0 }, { kcal: 0 }]).kcal, 1900);
+    const evk = evaluar(cfg, { sexo: "mujer", fechaNac: "1990-01-01", tallaCm: 160 }, { fecha: "2026-01-02", peso: 80, grasaPct: 30, grasaKg: 24.9, musculoKg: 51 });
+    caso("Kg de grasa: se usa el de AiLink, no peso × %", evk.grasaKg, 24.9);
+    caso("Kg de músculo: se usa el de AiLink", evk.musculoKg, 51);
+    const soloKg = evaluar(cfg, { sexo: "mujer", fechaNac: "1990-01-01", tallaCm: 160 }, { fecha: "2026-01-02", peso: 80, grasaKg: 28 });
+    caso("Grasa cargada solo en kg: % calculado", soloKg.grasaPct, 35);
+    caso("Grasa cargada solo en kg: clasificación de Bray", soloKg.grasaClase, "Obesidad");
+    const soloPct = evaluar(cfg, { sexo: "mujer", fechaNac: "1990-01-01", tallaCm: 160 }, { fecha: "2026-01-02", peso: 80, grasaPct: 25 });
+    caso("Grasa cargada solo en %: kg calculados", soloPct.grasaKg, 20);
     return casos;
   }
 
   return { edadEn, imc, clasificarIMC, contextura, pesoIdealTabla, pctPesoIdeal, pctPesoHabitual, perdidaPeso,
            pesoAjustado, riesgoCintura, cinturaCadera, grasaBray, deurenberg, composicion, harrisBenedict,
            macros, distribuir, columnaPorciones, totalIntercambios, nutrientes, totalesAlimentos, adecuacion,
+           repartir, ingredientesEnGramos, promedioSemana,
            evaluar, calcularPlan, autotest };
 })();
 /*MOTOR-FIN*/
@@ -344,15 +419,19 @@ const Motor = (() => {
    funcionando en memoria y lo avisa.
    ========================================================================== */
 const Datos = (() => {
-  const TABLAS = ["pacientes", "mediciones", "planes"];
-  const cache = { pacientes: [], mediciones: [], planes: [] };
+  const TABLAS = ["pacientes", "mediciones", "planes", "preparaciones"];
+  const cache = { pacientes: [], mediciones: [], planes: [], preparaciones: [] };
   let db = null, persistente = false;
 
   function abrir() {
     return new Promise((resolver) => {
       let pedido;
-      try { pedido = indexedDB.open("apoyo-nutricional", 1); } catch (e) { return resolver(false); }
-      pedido.onupgradeneeded = () => TABLAS.forEach((t) => pedido.result.createObjectStore(t, { keyPath: "id" }));
+      // Versión 2 de la base: agrega la tabla de preparaciones. Al subir de
+      // versión solo se crean las tablas que faltan; lo ya guardado no se toca.
+      try { pedido = indexedDB.open("apoyo-nutricional", 2); } catch (e) { return resolver(false); }
+      pedido.onupgradeneeded = () => TABLAS.forEach((t) => {
+        if (!pedido.result.objectStoreNames.contains(t)) pedido.result.createObjectStore(t, { keyPath: "id" });
+      });
       pedido.onerror = () => resolver(false);
       pedido.onsuccess = () => { db = pedido.result; resolver(true); };
     });
@@ -411,7 +490,7 @@ const Datos = (() => {
    Nunca calcula nada clínico: le pregunta todo al Motor.
    ========================================================================== */
 const C = window.CONFIG, ALIMENTOS = window.ALIMENTOS || [];
-const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null };
+const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null, dia: 0, prepEdit: null };
 const $app = document.getElementById("app");
 
 /* ---------- utilidades de formato ---------- */
@@ -426,6 +505,24 @@ const etiquetaAlimento = (a) => `${a.nombre} — ${a.medida} (${nf(a.cantidad, 0
 const paciente = () => Datos.cache.pacientes.find((p) => p.id === estado.pacienteId) || null;
 const medicionesDe = (id) => Datos.cache.mediciones.filter((m) => m.pacienteId === id).sort((a, b) => a.fecha < b.fecha ? -1 : 1);
 
+// Deja cualquier plan (también los guardados con la versión 1) con la forma
+// actual: 7 días × 6 comidas y los repartos por comida.
+function normalizarPlan(plan) {
+  const nComidas = C.comidas.length;
+  if (!plan.dias) {
+    plan.dias = C.dias.map(() => C.comidas.map(() => []));
+    // La versión 1 tenía un solo día en "comidas": pasa a ser el lunes.
+    if (Array.isArray(plan.comidas)) plan.comidas.forEach((lista, i) => { if (i < nComidas) plan.dias[0][i] = lista; });
+    delete plan.comidas;
+  }
+  while (plan.dias.length < C.dias.length) plan.dias.push(C.comidas.map(() => []));
+  plan.porcionesReparto = plan.porcionesReparto || {};
+  plan.intercambiosReparto = plan.intercambiosReparto || {};
+  plan.porciones = plan.porciones || {};
+  plan.intercambios = plan.intercambios || {};
+  return plan;
+}
+
 function planDe(pac) {
   let plan = Datos.cache.planes.find((p) => p.id === pac.id);
   if (!plan) {
@@ -435,10 +532,9 @@ function planDe(pac) {
              objetivo: obj, kcalKg: C.energia.formulaPractica[obj].min,
              // Los macros arrancan vacíos: los carga el nutricionista.
              protGkg: 0, grasaPct: 0, hcPct: 0,
-             comidasPct: C.comidasPctInicial.slice(), columna: "", porciones: {}, intercambios: {},
-             comidas: C.comidas.map(() => []) };
+             comidasPct: C.comidasPctInicial.slice(), columna: "", porciones: {}, intercambios: {} };
   }
-  return plan;
+  return normalizarPlan(plan);
 }
 
 // Evaluación y plan de la última medición del paciente (o null si no hay).
@@ -493,7 +589,7 @@ function formPaciente(p) {
 }
 
 const PESTANAS = [["evaluacion", "Evaluación"], ["mediciones", "Mediciones"], ["plan", "Calorías y macros"],
-                  ["porciones", "Porciones"], ["planificador", "Planificador"], ["informe", "Informe"]];
+                  ["porciones", "Porciones"], ["planificador", "Plan semanal"], ["informe", "Informe"]];
 
 function vistaPaciente() {
   const pac = paciente();
@@ -524,14 +620,14 @@ function bloqueEvaluacion(pac, ctx) {
   const { ev, med } = ctx, f = [];
   f.push(dato("Peso actual", `<b>${nf(ev.peso)} kg</b> <span class="nota">(${fechaCorta(med.fecha)})</span>`));
   f.push(dato("IMC", `<b>${nf(ev.imc, 2)}</b> <span class="chip ${ev.imcClase.estado}">${esc(ev.imcClase.nombre)}</span> <span class="nota">tabla de ${ev.imcClase.tabla}</span>`));
-  f.push(dato("% de grasa corporal", ev.grasaPct != null
-    ? `<b>${nf(ev.grasaPct)} %</b> <span class="chip ${ev.grasaClase === "Normal" ? "ok" : ev.grasaClase === "Obesidad" ? "mal" : "avi"}">${esc(ev.grasaClase)}</span> <span class="nota">Bray · grasa ${nf(ev.composicion.grasaKg)} kg, masa magra ${nf(ev.composicion.magraKg)} kg</span>`
+  f.push(dato("Grasa corporal", ev.grasaPct != null || ev.grasaKg != null
+    ? `${ev.grasaKg != null ? `<b>${nf(ev.grasaKg)} kg</b>${ev.grasaKgCalculada ? ` <span class="nota">(calculado: peso × %)</span>` : ""}` : ""}${ev.grasaPct != null ? ` · <b>${nf(ev.grasaPct)} %</b>${ev.grasaPctCalculada ? ` <span class="nota">(calculado: kg ÷ peso)</span>` : ""} <span class="chip ${ev.grasaClase === "Normal" ? "ok" : ev.grasaClase === "Obesidad" ? "mal" : "avi"}">${esc(ev.grasaClase)}</span> <span class="nota">Bray</span>` : ""}`
     : `<span class="nota">No se cargó. Estimación por Deurenberg: ${nf(ev.grasaEstimada)} %</span>`));
-  f.push(dato("% de músculo", med.musculoPct != null
-    ? `<b>${nf(med.musculoPct)} %</b> ${med.musculoCalif ? `<span class="chip">${esc(med.musculoCalif)}</span> <span class="nota">calificación de AiLink</span>` : ""}`
+  f.push(dato("Masa muscular", ev.musculoKg != null || med.musculoPct != null
+    ? `${ev.musculoKg != null ? `<b>${nf(ev.musculoKg)} kg</b>` : ""}${med.musculoPct != null ? `${ev.musculoKg != null ? " · " : ""}<b>${nf(med.musculoPct)} %</b>` : ""} ${med.musculoCalif ? `<span class="chip">${esc(med.musculoCalif)}</span> <span class="nota">calificación de AiLink</span>` : ""}`
     : `<span class="nota">No se cargó</span>`));
   f.push(dato("Contextura", ev.contextura ? `<b>${esc(ev.contextura.nombre)}</b> <span class="nota">talla/muñeca = ${nf(ev.contextura.indice, 2)}</span>` : `<span class="nota">Falta la circunferencia de muñeca</span>`));
-  f.push(dato("Peso ideal", ev.pesoIdeal.valor ? `<b>${nf(ev.pesoIdeal.valor)} kg</b> <span class="nota">${esc(ev.pesoIdeal.criterio)}</span>` : `<span class="nota">Sin dato: ${esc(ev.pesoIdeal.motivo)}. Podés cargarlo a mano en la ficha.</span>`));
+  f.push(dato("Peso ideal", ev.pesoIdeal.valor ? `<b>${nf(ev.pesoIdeal.valor)} kg</b> <span class="nota">${esc(ev.pesoIdeal.criterio)}</span>` : `<span class="nota">Sin valor: ${esc(ev.pesoIdeal.motivo)}. Se puede cargar a mano en la ficha.</span>`));
   if (ev.pctIdeal) f.push(dato("% de peso ideal", `<b>${nf(ev.pctIdeal.pct)} %</b> <span class="chip">${esc(ev.pctIdeal.nombre)}</span>`));
   if (ev.pctHabitual) f.push(dato("% de peso habitual", `<b>${nf(ev.pctHabitual.pct)} %</b> <span class="chip">${esc(ev.pctHabitual.nombre)}</span>`));
   if (ev.perdida && ev.perdida.pct > 0) f.push(dato("% de pérdida de peso", `<b>${nf(ev.perdida.pct)} %</b> ${ev.perdida.nombre ? `<span class="chip">${esc(ev.perdida.nombre)}</span> <span class="nota">en ${esc(med.periodoPerdida)}</span>` : `<span class="nota">indicá el período en la medición para clasificarla</span>`}`));
@@ -546,31 +642,56 @@ function pestanaEvaluacion(pac, ctx) {
     <p class="nota">Calculado sobre la última medición. Los puntos de corte salen de config.js.</p></div>`;
 }
 
+// Series del gráfico y columnas de la evolución. Los kg de grasa usan el
+// valor de AiLink y, si no se cargó, peso × % (igual que la evaluación).
+function seriesEvolucion(pac) {
+  return {
+    peso: ["Peso (kg)", (m) => m.peso],
+    grasaKg: ["Grasa (kg)", (m) => m.grasaKg != null ? m.grasaKg : m.grasaPct != null ? m.peso * m.grasaPct / 100 : null],
+    musculoKg: ["Músculo (kg)", (m) => m.musculoKg],
+    grasaPct: ["% de grasa", (m) => m.grasaPct != null ? m.grasaPct : m.grasaKg != null ? m.grasaKg * 100 / m.peso : null],
+    musculoPct: ["% de músculo", (m) => m.musculoPct],
+    imc: ["IMC", (m) => Motor.imc(m.peso, pac.tallaCm)],
+  };
+}
+
+function tablaEvolucion(pac, meds, conBorrar) {
+  const s = seriesEvolucion(pac);
+  return `<div class="scroll"><table><tr><th>Fecha</th><th class="n">Peso</th><th class="n">Grasa kg</th><th class="n">Músculo kg</th><th class="n">% grasa</th><th class="n">% músc.</th><th class="n">IMC</th><th class="n">Cintura</th>${conBorrar ? `<th class="no-imprimir"></th>` : ""}</tr>
+    ${meds.map((m) => `<tr><td>${fechaCorta(m.fecha)}</td><td class="n">${nf(m.peso)}</td><td class="n">${nf(s.grasaKg[1](m))}</td><td class="n">${nf(m.musculoKg)}</td><td class="n">${nf(s.grasaPct[1](m))}</td><td class="n">${nf(m.musculoPct)}</td><td class="n">${nf(s.imc[1](m), 2)}</td><td class="n">${nf(m.cintura)}</td>${conBorrar ? `<td class="no-imprimir"><button class="mini peligro" data-accion="borrarMedicion" data-id="${m.id}">Eliminar</button></td>` : ""}</tr>`).join("")}
+  </table></div>`;
+}
+
 function pestanaMediciones(pac) {
   const meds = medicionesDe(pac.id), b = estado.borrador;
   let form;
   if (b && b.revisando) {
     // Paso de confirmación: se muestra lo que se va a guardar antes de guardarlo.
     const avisos = [];
-    const rango = (campo, nombre) => { const r = C.validacion[campo], v = b[campo === "peso" ? "peso" : campo];
+    const rango = (campo, nombre) => { const r = C.validacion[campo], v = b[campo];
       if (v != null && (v < r[0] || v > r[1])) avisos.push(`${nombre} ${nf(v)} está fuera del rango esperado (${r[0]}–${r[1]}). Revisá si está bien tipeado.`); };
-    rango("peso", "El peso"); rango("grasaPct", "El % de grasa"); rango("musculoPct", "El % de músculo"); rango("cintura", "La cintura"); rango("cadera", "La cadera");
+    rango("peso", "El peso"); rango("grasaKg", "La grasa en kg"); rango("musculoKg", "El músculo en kg"); rango("grasaPct", "El % de grasa"); rango("musculoPct", "El % de músculo"); rango("cintura", "La cintura"); rango("cadera", "La cadera");
+    if (b.grasaKg != null && b.grasaPct != null && Math.abs(b.grasaKg - b.peso * b.grasaPct / 100) > C.validacion.toleranciaGrasaKg)
+      avisos.push(`Los ${nf(b.grasaKg)} kg de grasa no coinciden con ${nf(b.grasaPct)} % de ${nf(b.peso)} kg (serían ${nf(b.peso * b.grasaPct / 100)} kg). Revisá los dos valores.`);
+    if (b.grasaKg != null && b.musculoKg != null && b.grasaKg + b.musculoKg > b.peso) avisos.push("La grasa y el músculo en kg suman más que el peso. Revisá los valores.");
     const previo = meds[meds.length - 1];
     if (previo && Math.abs(b.peso - previo.peso) > previo.peso * 0.1) avisos.push(`El peso cambia más de 10 % respecto de la medición anterior (${nf(previo.peso)} kg).`);
     form = `<h2>Confirmar medición</h2>
       ${avisos.map((a) => `<div class="aviso">${esc(a)}</div>`).join("")}
       ${dato("Fecha", esc(new Date(b.fecha).toLocaleString("es")))}
       ${dato("Peso", `<b>${nf(b.peso)} kg</b> <span class="nota">IMC ${nf(Motor.imc(b.peso, pac.tallaCm), 2)}</span>`)}
-      ${b.grasaPct != null ? dato("% de grasa", `<b>${nf(b.grasaPct)} %</b>`) : ""}
-      ${b.musculoPct != null ? dato("% de músculo", `<b>${nf(b.musculoPct)} %</b> ${esc(b.musculoCalif || "")}`) : ""}
+      ${b.grasaKg != null || b.grasaPct != null ? dato("Grasa", `${b.grasaKg != null ? `<b>${nf(b.grasaKg)} kg</b> ` : ""}${b.grasaPct != null ? `<b>${nf(b.grasaPct)} %</b>` : ""}`) : ""}
+      ${b.musculoKg != null || b.musculoPct != null ? dato("Masa muscular", `${b.musculoKg != null ? `<b>${nf(b.musculoKg)} kg</b> ` : ""}${b.musculoPct != null ? `<b>${nf(b.musculoPct)} %</b> ` : ""}${esc(b.musculoCalif || "")}`) : ""}
       ${b.cintura != null ? dato("Cintura", `<b>${nf(b.cintura)} cm</b>`) : ""}
       ${b.cadera != null ? dato("Cadera", `<b>${nf(b.cadera)} cm</b>`) : ""}
       <div class="fila"><button class="pri" data-accion="confirmarMedicion">Guardar</button><button data-accion="corregirMedicion">Corregir</button></div>`;
   } else if (b) {
     form = `<h2>Nueva medición</h2>
-      <p class="nota">Copiá los valores que muestra AiLink. Solo el peso es obligatorio.</p>
+      <p class="nota">Copiá los valores tal como los muestra AiLink. Solo el peso es obligatorio.</p>
       <form id="fMedicion" class="campos">
         <label>Peso (kg) *<input name="peso" inputmode="decimal" required value="${esc(b.peso)}" autofocus></label>
+        <label>Grasa corporal (kg)<input name="grasaKg" inputmode="decimal" value="${esc(b.grasaKg)}"></label>
+        <label>Masa muscular (kg)<input name="musculoKg" inputmode="decimal" value="${esc(b.musculoKg)}"></label>
         <label>% de grasa (BFR)<input name="grasaPct" inputmode="decimal" value="${esc(b.grasaPct)}"></label>
         <label>% de músculo (tasa muscular)<input name="musculoPct" inputmode="decimal" value="${esc(b.musculoPct)}"></label>
         <label>Calificación del músculo en AiLink<select name="musculoCalif"><option value="">—</option>${C.musculo.calificacionesAilink.map((c) => `<option ${b.musculoCalif === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
@@ -583,17 +704,13 @@ function pestanaMediciones(pac) {
   } else {
     form = `<div class="fila" style="margin:0"><button class="pri" data-accion="nuevaMedicion">+ Nueva medición</button></div>`;
   }
-
-  const series = { peso: ["Peso (kg)", (m) => m.peso], imc: ["IMC", (m) => Motor.imc(m.peso, pac.tallaCm)],
-                   grasaPct: ["% de grasa", (m) => m.grasaPct], musculoPct: ["% de músculo", (m) => m.musculoPct] };
+  const series = seriesEvolucion(pac), sel = series[estado.graf] ? estado.graf : "peso";
   return `
   <div class="panel no-imprimir">${form}</div>
   ${meds.length ? `<div class="panel"><h2>Evolución</h2>
-    <div class="fila no-imprimir" style="margin:0 0 8px">${Object.entries(series).map(([k, [t]]) => `<button class="mini ${estado.graf === k ? "pri" : ""}" data-accion="graf" data-g="${k}">${t}</button>`).join("")}</div>
-    ${grafico(meds, series[estado.graf][1], series[estado.graf][0])}
-    <div class="scroll"><table><tr><th>Fecha</th><th class="n">Peso</th><th class="n">IMC</th><th class="n">% grasa</th><th class="n">% músculo</th><th class="n">Cintura</th><th class="n">Cadera</th><th class="no-imprimir"></th></tr>
-    ${meds.slice().reverse().map((m) => `<tr><td>${fechaCorta(m.fecha)}</td><td class="n">${nf(m.peso)}</td><td class="n">${nf(Motor.imc(m.peso, pac.tallaCm), 2)}</td><td class="n">${nf(m.grasaPct)}</td><td class="n">${nf(m.musculoPct)}</td><td class="n">${nf(m.cintura)}</td><td class="n">${nf(m.cadera)}</td><td class="no-imprimir"><button class="mini peligro" data-accion="borrarMedicion" data-id="${m.id}">Eliminar</button></td></tr>`).join("")}
-    </table></div></div>` : ""}`;
+    <div class="fila no-imprimir" style="margin:0 0 8px">${Object.entries(series).map(([k, [t]]) => `<button class="mini ${sel === k ? "pri" : ""}" data-accion="graf" data-g="${k}">${t}</button>`).join("")}</div>
+    ${grafico(meds, series[sel][1], series[sel][0])}
+    ${tablaEvolucion(pac, meds.slice().reverse(), true)}</div>` : ""}`;
 }
 
 // Gráfico de líneas propio (SVG), sin librerías externas: así no depende de
@@ -676,13 +793,32 @@ function pestanaPlan(pac, ctx) {
   </div>`;
 }
 
+// Matriz editable "grupo × comida". clave: "porciones" o "intercambios".
+// filas: [{ i, nombre, total }] con el total indicado de cada grupo.
+function matrizReparto(plan, clave, filas, pie) {
+  const rep = plan[clave + "Reparto"], attr = clave === "porciones" ? "data-rep-p" : "data-rep-i";
+  const col = C.comidas.map((_, c) => filas.reduce((a, f) => a + (Number((rep[f.i] || [])[c]) || 0), 0));
+  return `<div class="scroll"><table><tr><th>Grupo</th>${C.comidas.map((n) => `<th class="n">${esc(n)}</th>`).join("")}<th class="n">Repartido</th><th class="n">Indicado</th></tr>
+    ${filas.map((f) => { const fila = rep[f.i] || [], suma = C.comidas.reduce((a, _, c) => a + (Number(fila[c]) || 0), 0), ok = Math.abs(suma - f.total) < 0.001;
+      return `<tr><td>${esc(f.nombre)}</td>${C.comidas.map((_, c) => `<td class="n"><input class="mat" ${attr}="${f.i}:${c}" inputmode="decimal" value="${fila[c] ? esc(String(fila[c]).replace(".", ",")) : ""}"></td>`).join("")}<td class="n"><span class="chip ${ok ? "ok" : "mal"}">${nf(suma, 1)}</span></td><td class="n">${nf(f.total, 1)}</td></tr>`; }).join("")}
+    <tr><th>Total de porciones</th>${col.map((v) => `<th class="n">${nf(v, 1)}</th>`).join("")}<th></th><th></th></tr>
+    ${pie || ""}</table></div>`;
+}
+
 function pestanaPorciones(pac, ctx) {
   const { ev, plan, calc } = ctx, m = calc.macros;
   const auto = Motor.columnaPorciones(C, pac.sexo, ev.edad);
   const col = C.porciones.columnas.find((c) => c.id === plan.columna) || auto;
   const ti = Motor.totalIntercambios(C, C.intercambios.map((_, i) => plan.intercambios[i]));
+  const filasP = C.porciones.grupos.map((g, i) => ({ i, nombre: g.nombre, total: num(plan.porciones[i]) || 0 })).filter((f) => f.total > 0);
+  const filasI = C.intercambios.map((g, i) => ({ i, nombre: g.grupo, total: num(plan.intercambios[i]) || 0 })).filter((f) => f.total > 0);
+  // Calorías que aportan los intercambios repartidos en cada comida.
+  const kcalComida = C.comidas.map((_, c) => filasI.reduce((a, f) => a + C.intercambios[f.i].kcal * (Number((plan.intercambiosReparto[f.i] || [])[c]) || 0), 0));
+  const pieI = `<tr><th>Kcal de la comida</th>${kcalComida.map((v) => `<th class="n">${nf(v, 0)}</th>`).join("")}<th></th><th></th></tr>
+    <tr><th>Meta de la comida</th>${calc.comidas.map((x) => `<th class="n">${nf(x.kcal, 0)}</th>`).join("")}<th></th><th></th></tr>
+    <tr><th>Adecuación</th>${calc.comidas.map((x, c) => `<th class="n">${x.kcal > 0 ? chipAdecuacion(kcalComida[c], x.kcal) : ""}</th>`).join("")}<th></th><th></th></tr>`;
   return `
-  <div class="panel"><h2>Porciones sugeridas por grupo de alimentos</h2>
+  <div class="panel"><h2>Porciones por grupo de alimentos</h2>
     <p class="nota">Guías Alimentarias del Paraguay 2021. Son valores para población sana: la app los sugiere y vos decidís cuántas indicar.</p>
     <div class="campos"><label>Columna de referencia<select data-plan="columna"><option value="">Automática por edad y sexo${auto ? ` (${esc(auto.nombre)})` : " (sin columna para esta edad)"}</option>${C.porciones.columnas.map((c) => `<option value="${c.id}" ${plan.columna === c.id ? "selected" : ""}>${esc(c.nombre)} — ${c.kcal} kcal</option>`).join("")}</select></label></div>
     ${col ? `
@@ -690,55 +826,111 @@ function pestanaPorciones(pac, ctx) {
     <div class="scroll"><table><tr><th>Grupo y equivalencia de una porción</th><th class="n">Sugeridas</th><th class="n">Indicadas</th></tr>
     ${C.porciones.grupos.map((g, i) => `<tr><td><b>${esc(g.nombre)}</b><br><span class="nota">${esc(g.porcion)}</span></td><td class="n">${esc(g.valores[col.id])}</td><td class="n"><input class="corto" data-porcion="${i}" inputmode="decimal" value="${esc(plan.porciones[i])}"></td></tr>`).join("")}
     </table></div>
-    <div class="fila no-imprimir"><button data-accion="copiarPorciones">Copiar las sugeridas</button></div>
-    <p class="nota">Esta tabla no trae el aporte de calorías y macros por porción, así que acá no se calcula la adecuación. Para controlarla usá los intercambios de abajo o el planificador.</p>`
+    <div class="fila no-imprimir"><button data-accion="copiarPorciones">Copiar las sugeridas</button></div>`
     : `<div class="aviso">No hay columna para ${ev.edad} años en esta versión (adultos desde 19). Elegí una a mano si corresponde.</div>`}
+    <h3>Reparto por comida</h3>
+    ${filasP.length ? `${matrizReparto(plan, "porciones", filasP)}
+      <div class="fila no-imprimir"><button data-accion="repartir" data-clave="porciones">Repartir según el % de cada comida</button></div>
+      <p class="nota">La propuesta usa los porcentajes de "Calorías y macros" y redondea a ${nf(C.reparto.paso, 1)} porción. Cada casilla es editable.</p>`
+      : `<p class="nota">Indicá primero las porciones de arriba para poder repartirlas.</p>`}
   </div>
 
   <div class="panel"><h2>Intercambios</h2>
-    <p class="nota">Aporte por porción de la Guía de intercambio de alimentos (Perú, 2014). Cargá cuántas porciones indicás de cada grupo y se compara contra la meta, con ±${C.adecuacion.tolerancia} % de tolerancia.</p>
+    <p class="nota">Aporte por porción de la Guía de intercambio de alimentos (Perú, 2014). Se compara contra la meta con ±${C.adecuacion.tolerancia} % de tolerancia.</p>
     <div class="scroll"><table><tr><th>Grupo</th><th class="n">Porciones</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th></tr>
     ${C.intercambios.map((g, i) => { const n = Number(plan.intercambios[i]) || 0; return `<tr><td>${esc(g.grupo)} <span class="nota">(${g.kcal} kcal)</span></td><td class="n"><input class="corto" data-intercambio="${i}" inputmode="decimal" value="${esc(plan.intercambios[i])}"></td><td class="n">${nf(g.kcal * n, 0)}</td><td class="n">${nf(g.hc * n, 0)}</td><td class="n">${nf(g.prot * n, 0)}</td><td class="n">${nf(g.grasa * n, 0)}</td></tr>`; }).join("")}
     <tr><th>Total</th><th></th><th class="n">${nf(ti.kcal, 0)}</th><th class="n">${nf(ti.hc, 0)}</th><th class="n">${nf(ti.prot, 0)}</th><th class="n">${nf(ti.grasa, 0)}</th></tr>
     <tr><th>Meta</th><th></th><th class="n">${nf(calc.vct, 0)}</th><th class="n">${nf(m.hc.g, 0)}</th><th class="n">${nf(m.prot.g, 0)}</th><th class="n">${nf(m.grasa.g, 0)}</th></tr>
     <tr><th>Adecuación</th><th></th><th class="n">${chipAdecuacion(ti.kcal, calc.vct)}</th><th class="n">${chipAdecuacion(ti.hc, m.hc.g)}</th><th class="n">${chipAdecuacion(ti.prot, m.prot.g)}</th><th class="n">${chipAdecuacion(ti.grasa, m.grasa.g)}</th></tr>
     </table></div>
+    <h3>Reparto por comida</h3>
+    ${filasI.length ? `${matrizReparto(plan, "intercambios", filasI, pieI)}
+      <div class="fila no-imprimir"><button data-accion="repartir" data-clave="intercambios">Repartir según el % de cada comida</button></div>`
+      : `<p class="nota">Cargá primero los intercambios de arriba para poder repartirlos.</p>`}
   </div>`;
 }
 
-function itemsDe(plan) {
-  return plan.comidas.map((lista) => lista.map((it) => ({ alimento: ALIMENTOS.find((a) => a.id === it.alimentoId), gramos: it.gramos })).filter((x) => x.alimento));
+
+
+const alimentoPorId = (id) => ALIMENTOS.find((a) => a.id === id);
+const prepPorId = (id) => Datos.cache.preparaciones.find((p) => p.id === id);
+const etiquetaPrep = (p) => `★ ${p.nombre} (preparación)`;
+const unidadDe = (a) => a.unidad || "g";
+
+// Una comida guardada es una lista de ítems: alimentos sueltos
+// ({ alimentoId, gramos }) o preparaciones ({ prepId, factor }). Acá se
+// convierten en filas para mostrar; cada fila trae sus ingredientes en gramos.
+function filasDeComida(lista) {
+  return (lista || []).map((it, j) => {
+    if (it.prepId) {
+      const prep = prepPorId(it.prepId);
+      return prep ? { j, prep, factor: it.factor, ingredientes: Motor.ingredientesEnGramos(prep, alimentoPorId, it.factor) } : null;
+    }
+    const alimento = alimentoPorId(it.alimentoId);
+    return alimento ? { j, alimento, gramos: it.gramos, ingredientes: [{ alimento, gramos: it.gramos }] } : null;
+  }).filter(Boolean);
+}
+const ingredientesDe = (filas) => filas.flatMap((f) => f.ingredientes);
+const totalDia = (plan, d) => Motor.totalesAlimentos(C, plan.dias[d].flatMap((lista) => ingredientesDe(filasDeComida(lista))));
+const textoIngredientes = (ings) => ings.map((x) => `${x.alimento.nombre} ${nf(x.gramos, 0)} ${unidadDe(x.alimento)}`).join(" · ");
+
+function tablaSemana(plan, calc, conBotones) {
+  const m = calc.macros, tot = C.dias.map((_, d) => totalDia(plan, d)), prom = Motor.promedioSemana(tot);
+  return `<div class="scroll"><table><tr><th>Día</th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th><th class="n">Adecuación kcal</th></tr>
+    ${C.dias.map((n, d) => `<tr><td>${conBotones ? `<button class="mini ${estado.dia === d ? "pri" : ""}" data-accion="dia" data-d="${d}">${esc(n)}</button>` : esc(n)}</td><td class="n">${tot[d].kcal > 0 ? nf(tot[d].kcal, 0) : "—"}</td><td class="n">${tot[d].kcal > 0 ? nf(tot[d].hc) : "—"}</td><td class="n">${tot[d].kcal > 0 ? nf(tot[d].prot) : "—"}</td><td class="n">${tot[d].kcal > 0 ? nf(tot[d].grasa) : "—"}</td><td class="n">${tot[d].kcal > 0 ? chipAdecuacion(tot[d].kcal, calc.vct) : ""}</td></tr>`).join("")}
+    <tr><th>Promedio (${prom.dias} día${prom.dias === 1 ? "" : "s"} con datos)</th><th class="n">${nf(prom.kcal, 0)}</th><th class="n">${nf(prom.hc)} ${chipAdecuacion(prom.hc, m.hc.g)}</th><th class="n">${nf(prom.prot)} ${chipAdecuacion(prom.prot, m.prot.g)}</th><th class="n">${nf(prom.grasa)} ${chipAdecuacion(prom.grasa, m.grasa.g)}</th><th class="n">${chipAdecuacion(prom.kcal, calc.vct)}</th></tr>
+    <tr><th>Meta diaria</th><th class="n">${nf(calc.vct, 0)}</th><th class="n">${nf(m.hc.g)}</th><th class="n">${nf(m.prot.g)}</th><th class="n">${nf(m.grasa.g)}</th><th></th></tr></table></div>`;
 }
 
 function pestanaPlanificador(pac, ctx) {
-  const { plan, calc } = ctx, m = calc.macros, porComida = itemsDe(plan);
-  const total = Motor.totalesAlimentos(C, porComida.flat());
+  const { plan, calc } = ctx, m = calc.macros, d = estado.dia;
+  const filas = plan.dias[d].map(filasDeComida), total = Motor.totalesAlimentos(C, filas.flatMap(ingredientesDe));
+  const preps = Datos.cache.preparaciones.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  const otrosDias = C.dias.map((n, i) => i === d ? "" : `<option value="${i}">${esc(n)}</option>`).join("");
   return `
-  <datalist id="listaAlimentos">${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
-  <div class="panel"><h2>Adecuación del día</h2>
+  <datalist id="listaAlimentos">${preps.map((p) => `<option value="${esc(etiquetaPrep(p))}">`).join("")}${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
+  <div class="panel"><h2>Semana</h2>
+    ${tablaSemana(plan, calc, true)}
+    <p class="nota">Tocá un día para editarlo. Adecuación aceptada: ±${C.adecuacion.tolerancia} %.</p>
+  </div>
+  <div class="panel"><h2>${esc(C.dias[d])}</h2>
     <div class="scroll"><table><tr><th></th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
     <tr><td>Planificado</td><td class="n">${nf(total.kcal, 0)}</td><td class="n">${nf(total.hc)}</td><td class="n">${nf(total.prot)}</td><td class="n">${nf(total.grasa)}</td></tr>
     <tr><td>Meta</td><td class="n">${nf(calc.vct, 0)}</td><td class="n">${nf(m.hc.g)}</td><td class="n">${nf(m.prot.g)}</td><td class="n">${nf(m.grasa.g)}</td></tr>
-    <tr><th>Adecuación (±${C.adecuacion.tolerancia} %)</th><th class="n">${chipAdecuacion(total.kcal, calc.vct)}</th><th class="n">${chipAdecuacion(total.hc, m.hc.g)}</th><th class="n">${chipAdecuacion(total.prot, m.prot.g)}</th><th class="n">${chipAdecuacion(total.grasa, m.grasa.g)}</th></tr></table></div>
+    <tr><th>Adecuación</th><th class="n">${chipAdecuacion(total.kcal, calc.vct)}</th><th class="n">${chipAdecuacion(total.hc, m.hc.g)}</th><th class="n">${chipAdecuacion(total.prot, m.prot.g)}</th><th class="n">${chipAdecuacion(total.grasa, m.grasa.g)}</th></tr></table></div>
     <p class="nota">Proteínas de alto valor biológico: ${total.prot > 0 ? `${nf(total.protAVB)} g (${nf(total.protAVB * 100 / total.prot, 0)} % de las proteínas)` : "—"} · Fibra ${nf(total.fibra)} g · Sodio ${nf(total.na, 0)} mg · Potasio ${nf(total.k, 0)} mg</p>
-    ${total.sinGrupo ? `<div class="aviso">${total.sinGrupo} alimento(s) del plan no tienen grupo asignado en alimentos.js, así que no cuentan para las proteínas de alto valor biológico.</div>` : ""}
+    ${total.sinGrupo ? `<div class="aviso">${total.sinGrupo} alimento(s) de este día no tienen grupo asignado en alimentos.js y no cuentan para las proteínas de alto valor biológico.</div>` : ""}
+    <div class="fila no-imprimir"><span class="nota">Copiar todo este día a</span><select class="mini" id="destinoDia"><option value="todos">todos los demás días</option>${otrosDias}</select><button class="mini" data-accion="copiarDia">Copiar</button><button class="mini peligro" data-accion="vaciarDia">Vaciar este día</button></div>
   </div>
   ${C.comidas.map((nombre, i) => {
-    const t = Motor.totalesAlimentos(C, porComida[i]), meta = calc.comidas[i];
+    const t = Motor.totalesAlimentos(C, ingredientesDe(filas[i])), meta = calc.comidas[i];
     return `<div class="panel"><h2>${esc(nombre)} <span class="nota" style="font-weight:400">· meta ${nf(meta.kcal, 0)} kcal (${nf(meta.pct, 0)} %)</span></h2>
-      ${porComida[i].length ? `<div class="scroll"><table><tr><th>Alimento</th><th class="n">Gramos</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th><th></th></tr>
-      ${porComida[i].map((it, j) => { const n = Motor.nutrientes(it.alimento, it.gramos); return `<tr><td>${esc(it.alimento.nombre)}<br><span class="nota">${esc(it.alimento.medida)} = ${nf(it.alimento.cantidad, 0)} g</span></td><td class="n"><input class="corto" data-gramos="${i}:${j}" inputmode="decimal" value="${esc(it.gramos)}"></td><td class="n">${nf(n.kcal, 0)}</td><td class="n">${nf(n.hc)}</td><td class="n">${nf(n.prot)}</td><td class="n">${nf(n.grasa)}</td><td class="no-imprimir"><button class="mini peligro" data-accion="quitarAlimento" data-c="${i}" data-j="${j}">Quitar</button></td></tr>`; }).join("")}
+      ${filas[i].length ? `<div class="scroll"><table><tr><th>Alimento o preparación</th><th class="n">Cantidad</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th><th></th></tr>
+      ${filas[i].map((f) => { const n = Motor.totalesAlimentos(C, f.ingredientes);
+        const nombreCelda = f.prep ? `<b>${esc(f.prep.nombre)}</b><br><span class="nota">${esc(textoIngredientes(f.ingredientes))}</span>` : `${esc(f.alimento.nombre)}<br><span class="nota">${esc(f.alimento.medida)} = ${nf(f.alimento.cantidad, 0)} ${unidadDe(f.alimento)}</span>`;
+        const cant = f.prep ? `<input class="corto" data-factor="${i}:${f.j}" inputmode="decimal" value="${esc(String(f.factor).replace(".", ","))}"><br><span class="nota">porciones</span>` : `<input class="corto" data-gramos="${i}:${f.j}" inputmode="decimal" value="${esc(f.gramos)}"><br><span class="nota">${unidadDe(f.alimento)}</span>`;
+        return `<tr><td>${nombreCelda}</td><td class="n">${cant}</td><td class="n">${nf(n.kcal, 0)}</td><td class="n">${nf(n.hc)}</td><td class="n">${nf(n.prot)}</td><td class="n">${nf(n.grasa)}</td><td class="no-imprimir"><button class="mini peligro" data-accion="quitarAlimento" data-c="${i}" data-j="${f.j}">Quitar</button></td></tr>`; }).join("")}
       <tr><th>Total</th><th></th><th class="n">${nf(t.kcal, 0)}</th><th class="n">${nf(t.hc)}</th><th class="n">${nf(t.prot)}</th><th class="n">${nf(t.grasa)}</th><th></th></tr></table></div>` : `<p class="nota">Sin alimentos.</p>`}
-      <div class="fila no-imprimir"><input list="listaAlimentos" id="buscar${i}" placeholder="Buscar alimento…" style="flex:1;min-width:200px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarAlimento" data-c="${i}">Agregar</button></div>
+      <div class="fila no-imprimir"><input list="listaAlimentos" id="buscar${i}" placeholder="Buscar alimento o preparación…" style="flex:1;min-width:200px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarAlimento" data-c="${i}">Agregar</button></div>
+      ${filas[i].length ? `<div class="fila no-imprimir"><span class="nota">Copiar esta comida a</span><select class="mini" id="destinoComida${i}"><option value="todos">todos los demás días</option>${otrosDias}</select><button class="mini" data-accion="copiarComida" data-c="${i}">Copiar</button></div>` : ""}
     </div>`; }).join("")}`;
 }
 
 function pestanaInforme(pac, ctx) {
-  const { ev, med, plan, calc, meds } = ctx, m = calc.macros, porComida = itemsDe(plan);
-  const total = Motor.totalesAlimentos(C, porComida.flat());
+  const { ev, med, plan, calc, meds } = ctx, m = calc.macros;
   const col = C.porciones.columnas.find((c) => c.id === plan.columna) || Motor.columnaPorciones(C, pac.sexo, ev.edad);
-  const hayPorciones = Object.values(plan.porciones).some((v) => v !== "" && v != null);
+  const filasP = C.porciones.grupos.map((g, i) => ({ i, g, total: num(plan.porciones[i]) || 0 })).filter((f) => f.total > 0);
+  const filasI = C.intercambios.map((g, i) => ({ i, g, total: num(plan.intercambios[i]) || 0 })).filter((f) => f.total > 0);
   const ti = Motor.totalIntercambios(C, C.intercambios.map((_, i) => plan.intercambios[i]));
+  // Tabla de solo lectura del reparto por comida (porciones o intercambios).
+  const repartoImpreso = (filas, rep, nombre) => {
+    if (!filas.some((f) => (rep[f.i] || []).some((v) => Number(v) > 0))) return "";
+    const usadas = C.comidas.map((_, c) => filas.some((f) => Number((rep[f.i] || [])[c]) > 0));
+    return `<h3>Reparto por comida</h3><div class="scroll"><table><tr><th>Grupo</th>${C.comidas.map((n, c) => usadas[c] ? `<th class="n">${esc(n)}</th>` : "").join("")}<th class="n">Total</th></tr>
+      ${filas.map((f) => `<tr><td>${esc(nombre(f))}</td>${C.comidas.map((_, c) => usadas[c] ? `<td class="n">${Number((rep[f.i] || [])[c]) > 0 ? nf((rep[f.i] || [])[c], 1) : ""}</td>` : "").join("")}<td class="n"><b>${nf(f.total, 1)}</b></td></tr>`).join("")}</table></div>`;
+  };
+  const dias = C.dias.map((n, d) => ({ n, d, filas: plan.dias[d].map(filasDeComida) })).filter((x) => x.filas.some((f) => f.length));
+  const prepsUsadas = [...new Map(dias.flatMap((x) => x.filas.flat()).filter((f) => f.prep).map((f) => [f.prep.id, f.prep])).values()];
   return `
   <div class="fila no-imprimir" style="margin:0 0 10px"><button class="pri" data-accion="imprimir">Imprimir o guardar como PDF</button></div>
   <div class="panel"><h2>Informe nutricional — ${esc(pac.nombre)}</h2>
@@ -746,9 +938,7 @@ function pestanaInforme(pac, ctx) {
     ${pac.notas ? `<p><b>Notas:</b> ${esc(pac.notas)}</p>` : ""}
   </div>
   <div class="panel"><h2>Estado nutricional</h2>${bloqueEvaluacion(pac, ctx)}</div>
-  ${meds.length > 1 ? `<div class="panel"><h2>Evolución</h2>${grafico(meds, (x) => x.peso, "Peso (kg)")}
-    <div class="scroll"><table><tr><th>Fecha</th><th class="n">Peso</th><th class="n">IMC</th><th class="n">% grasa</th><th class="n">% músculo</th></tr>
-    ${meds.map((x) => `<tr><td>${fechaCorta(x.fecha)}</td><td class="n">${nf(x.peso)}</td><td class="n">${nf(Motor.imc(x.peso, pac.tallaCm), 2)}</td><td class="n">${nf(x.grasaPct)}</td><td class="n">${nf(x.musculoPct)}</td></tr>`).join("")}</table></div></div>` : ""}
+  ${meds.length > 1 ? `<div class="panel"><h2>Evolución</h2>${grafico(meds, (x) => x.peso, "Peso (kg)")}${tablaEvolucion(pac, meds, false)}</div>` : ""}
   <div class="panel"><h2>Requerimiento calórico y macronutrientes</h2>
     ${dato("Método", plan.metodo === "practica" ? `Fórmula práctica: ${nf(ev.peso)} kg × ${nf(plan.kcalKg, 1)} kcal/kg (${esc(plan.objetivo)})` : `Harris-Benedict (${nf(calc.gmb, 0)} kcal con ${calc.usaAjustado ? "peso ajustado" : "peso actual"} ${nf(calc.pesoGasto)} kg) × actividad ${nf(plan.fa, 2)} (${esc(plan.actividad)}) × injuria ${nf(plan.fi, 2)} (${esc(plan.injuria)})`)}
     ${dato("Valor calórico total", `<b>${nf(calc.vct, 0)} kcal/día</b>`)}
@@ -758,21 +948,57 @@ function pestanaInforme(pac, ctx) {
     ${Math.abs(m.sumaPct - 100) >= 0.05 ? `<div class="aviso">Los macronutrientes suman ${nf(m.sumaPct)} %.</div>` : ""}
     <h3>Distribución por comida</h3>
     <div class="scroll"><table><tr><th>Comida</th><th class="n">%</th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
-    ${calc.comidas.filter((c) => c.pct > 0).map((c) => `<tr><td>${esc(C.comidas[calc.comidas.indexOf(c)])}</td><td class="n">${nf(c.pct, 0)}</td><td class="n">${nf(c.kcal, 0)}</td><td class="n">${nf(c.hc)}</td><td class="n">${nf(c.prot)}</td><td class="n">${nf(c.grasa)}</td></tr>`).join("")}</table></div>
+    ${calc.comidas.map((c, i) => c.pct > 0 ? `<tr><td>${esc(C.comidas[i])}</td><td class="n">${nf(c.pct, 0)}</td><td class="n">${nf(c.kcal, 0)}</td><td class="n">${nf(c.hc)}</td><td class="n">${nf(c.prot)}</td><td class="n">${nf(c.grasa)}</td></tr>` : "").join("")}</table></div>
   </div>
-  ${hayPorciones && col ? `<div class="panel"><h2>Porciones indicadas por grupo</h2>
+  ${filasP.length && col ? `<div class="panel"><h2>Porciones indicadas por grupo</h2>
     <div class="scroll"><table><tr><th>Grupo</th><th class="n">Porciones</th><th>Una porción equivale a</th></tr>
-    ${C.porciones.grupos.map((g, i) => plan.porciones[i] ? `<tr><td><b>${esc(g.nombre)}</b></td><td class="n">${esc(plan.porciones[i])}</td><td class="nota">${esc(g.porcion)}</td></tr>` : "").join("")}</table></div></div>` : ""}
-  ${ti.kcal > 0 ? `<div class="panel"><h2>Intercambios indicados</h2>
+    ${filasP.map((f) => `<tr><td><b>${esc(f.g.nombre)}</b></td><td class="n">${nf(f.total, 1)}</td><td class="nota">${esc(f.g.porcion)}</td></tr>`).join("")}</table></div>
+    ${repartoImpreso(filasP, plan.porcionesReparto, (f) => f.g.nombre)}</div>` : ""}
+  ${filasI.length ? `<div class="panel"><h2>Intercambios indicados</h2>
     <div class="scroll"><table><tr><th>Grupo</th><th class="n">Porciones</th></tr>
-    ${C.intercambios.map((g, i) => plan.intercambios[i] ? `<tr><td>${esc(g.grupo)}</td><td class="n">${esc(plan.intercambios[i])}</td></tr>` : "").join("")}</table></div>
-    <p class="nota">Aportan ${nf(ti.kcal, 0)} kcal · HC ${nf(ti.hc, 0)} g · proteínas ${nf(ti.prot, 0)} g · grasas ${nf(ti.grasa, 0)} g. Adecuación calórica: ${chipAdecuacion(ti.kcal, calc.vct)}</p></div>` : ""}
-  ${total.kcal > 0 ? `<div class="panel"><h2>Plan de alimentación</h2>
-    ${C.comidas.map((nombre, i) => porComida[i].length ? `<h3>${esc(nombre)}</h3><div class="scroll"><table>
-      ${porComida[i].map((it) => `<tr><td>${esc(it.alimento.nombre)}</td><td class="n">${nf(it.gramos, 0)} g</td><td class="nota">${esc(it.alimento.medida)} = ${nf(it.alimento.cantidad, 0)} g</td></tr>`).join("")}</table></div>` : "").join("")}
-    <h3>Aporte del plan</h3>
-    <p>${nf(total.kcal, 0)} kcal ${chipAdecuacion(total.kcal, calc.vct)} · HC ${nf(total.hc)} g ${chipAdecuacion(total.hc, m.hc.g)} · proteínas ${nf(total.prot)} g ${chipAdecuacion(total.prot, m.prot.g)} · grasas ${nf(total.grasa)} g ${chipAdecuacion(total.grasa, m.grasa.g)}</p></div>` : ""}
+    ${filasI.map((f) => `<tr><td>${esc(f.g.grupo)}</td><td class="n">${nf(f.total, 1)}</td></tr>`).join("")}</table></div>
+    <p class="nota">Aportan ${nf(ti.kcal, 0)} kcal · HC ${nf(ti.hc, 0)} g · proteínas ${nf(ti.prot, 0)} g · grasas ${nf(ti.grasa, 0)} g. Adecuación calórica: ${chipAdecuacion(ti.kcal, calc.vct)}</p>
+    ${repartoImpreso(filasI, plan.intercambiosReparto, (f) => f.g.grupo)}</div>` : ""}
+  ${dias.length ? `<div class="panel"><h2>Plan de alimentación semanal</h2>
+    ${tablaSemana(plan, calc, false)}
+    ${dias.map((x) => { const t = Motor.totalesAlimentos(C, x.filas.flatMap(ingredientesDe));
+      return `<h3>${esc(x.n)}</h3><div class="scroll"><table>
+      ${x.filas.map((fs, i) => fs.length ? `<tr><td style="width:24%"><b>${esc(C.comidas[i])}</b></td><td>${fs.map((f) => f.prep ? `${esc(f.prep.nombre)}${f.factor !== 1 ? ` (${nf(f.factor, 2)} porción)` : ""}` : `${esc(f.alimento.nombre)} ${nf(f.gramos, 0)} ${unidadDe(f.alimento)}`).join(" · ")}</td></tr>` : "").join("")}
+      </table></div><p class="nota">${nf(t.kcal, 0)} kcal ${chipAdecuacion(t.kcal, calc.vct)} · HC ${nf(t.hc)} g ${chipAdecuacion(t.hc, m.hc.g)} · proteínas ${nf(t.prot)} g ${chipAdecuacion(t.prot, m.prot.g)} · grasas ${nf(t.grasa)} g ${chipAdecuacion(t.grasa, m.grasa.g)}</p>`; }).join("")}
+    ${prepsUsadas.length ? `<h3>Preparaciones (cantidades para 1 porción)</h3><div class="scroll"><table>
+      ${prepsUsadas.map((p) => { const ings = Motor.ingredientesEnGramos(p, alimentoPorId, 1); return `<tr><td style="width:24%"><b>${esc(p.nombre)}</b></td><td>${esc(textoIngredientes(ings))}</td><td class="n">${nf(Motor.totalesAlimentos(C, ings).kcal, 0)} kcal</td></tr>`; }).join("")}</table></div>` : ""}
+    </div>` : ""}
   <p class="nota">Los valores de este informe son cálculos de apoyo. La indicación la define el profesional nutricionista.</p>`;
+}
+
+
+function vistaPreparaciones() {
+  const e = estado.prepEdit;
+  if (e) {
+    const ings = Motor.ingredientesEnGramos(e, alimentoPorId, 1), t = Motor.totalesAlimentos(C, ings);
+    const pesoTotal = ings.reduce((a, x) => a + x.gramos, 0);
+    return `
+    <datalist id="listaIngredientes">${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
+    <div class="panel"><h2>${e.id ? "Editar preparación" : "Nueva preparación"}</h2>
+      <div class="campos"><label>Nombre<input id="prepNombre" data-prep="nombre" value="${esc(e.nombre)}" placeholder="Ej.: Guiso de arroz"></label></div>
+      <h3>Ingredientes</h3>
+      ${e.ingredientes.length ? `<div class="scroll"><table><tr><th>Alimento</th><th class="n">Cantidad</th><th>En</th><th class="n">Equivale a</th><th class="n">Kcal</th><th></th></tr>
+      ${e.ingredientes.map((ing, j) => { const a = alimentoPorId(ing.alimentoId); if (!a) return ""; const g = ing.modo === "u" ? ing.cantidad * a.cantidad : ing.cantidad;
+        return `<tr><td>${esc(a.nombre)}</td><td class="n"><input class="corto" data-prep-cant="${j}" inputmode="decimal" value="${esc(ing.cantidad)}"></td><td><select class="mini" data-prep-modo="${j}"><option value="g" ${ing.modo === "g" ? "selected" : ""}>${unidadDe(a)}</option><option value="u" ${ing.modo === "u" ? "selected" : ""}>× ${esc(a.medida)} (${nf(a.cantidad, 0)} ${unidadDe(a)})</option></select></td><td class="n">${nf(g, 0)} ${unidadDe(a)}</td><td class="n">${nf(Motor.nutrientes(a, g).kcal, 0)}</td><td><button class="mini peligro" data-accion="quitarIngrediente" data-j="${j}">Quitar</button></td></tr>`; }).join("")}
+      </table></div>` : `<p class="nota">Todavía sin ingredientes.</p>`}
+      <div class="fila"><input list="listaIngredientes" id="buscarIngrediente" placeholder="Buscar alimento…" style="flex:1;min-width:200px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarIngrediente">Agregar ingrediente</button></div>
+      <h3>Aporte de la preparación completa</h3>
+      <p><b>${nf(t.kcal, 0)} kcal</b> · HC ${nf(t.hc)} g · proteínas ${nf(t.prot)} g · grasas ${nf(t.grasa)} g · peso total ${nf(pesoTotal, 0)} g</p>
+      <p class="nota">Al agregarla a una comida se indica cuántas porciones se sirven (1 = la preparación completa, 0,5 = la mitad).</p>
+      <div class="fila"><button class="pri" data-accion="guardarPrep">Guardar</button><button data-accion="cancelarPrep">Cancelar</button>${e.id ? `<button class="peligro" data-accion="borrarPrep">Eliminar</button>` : ""}</div>
+    </div>`;
+  }
+  const lista = Datos.cache.preparaciones.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  return `<div class="panel"><h2>Preparaciones</h2>
+    <p class="nota">Recetas armadas con alimentos de la tabla. Se guardan una vez y se reutilizan en el planificador de cualquier paciente.</p>
+    ${lista.length ? `<div class="lista-pac">${lista.map((p) => { const ings = Motor.ingredientesEnGramos(p, alimentoPorId, 1), t = Motor.totalesAlimentos(C, ings);
+      return `<button data-accion="editarPrep" data-id="${p.id}"><b>${esc(p.nombre)}</b> <small>· ${nf(t.kcal, 0)} kcal</small><br><small>${esc(textoIngredientes(ings))}</small></button>`; }).join("")}</div>` : `<p class="nota">Todavía no hay preparaciones.</p>`}
+    <div class="fila"><button class="pri" data-accion="nuevaPrep">+ Nueva preparación</button></div></div>`;
 }
 
 function vistaAjustes() {
@@ -801,6 +1027,7 @@ function dibujar() {
   const msj = estado.mensaje ? `<div class="aviso ${estado.mensaje.tipo}">${esc(estado.mensaje.texto)}</div>` : "";
   estado.mensaje = null;
   $app.innerHTML = msj + (estado.vista === "ajustes" ? vistaAjustes()
+    : estado.vista === "preparaciones" ? vistaPreparaciones()
     : estado.vista === "nuevoPaciente" ? formPaciente(null)
     : estado.vista === "paciente" ? vistaPaciente() : vistaPacientes());
 }
@@ -829,15 +1056,18 @@ function guardarPaciente() {
 
 function revisarMedicion() {
   const d = leerFormulario("fMedicion"), peso = num(d.peso);
-  estado.borrador = { fecha: d.fecha || ahoraLocal(), peso, grasaPct: num(d.grasaPct), musculoPct: num(d.musculoPct),
+  estado.borrador = { fechaInicial: estado.borrador && estado.borrador.fechaInicial, fecha: d.fecha || ahoraLocal(), peso, grasaKg: num(d.grasaKg), musculoKg: num(d.musculoKg), grasaPct: num(d.grasaPct), musculoPct: num(d.musculoPct),
                       musculoCalif: d.musculoCalif, cintura: num(d.cintura), cadera: num(d.cadera), periodoPerdida: d.periodoPerdida };
   if (peso == null || peso <= 0) return avisar("El peso es obligatorio.", "mal");
   estado.borrador.revisando = true;
 }
 
 function confirmarMedicion() {
-  const b = estado.borrador, m = { ...b, id: Datos.nuevoId(), pacienteId: estado.pacienteId, fecha: new Date(b.fecha).toISOString() };
-  delete m.revisando;
+  // Si no se tocó la fecha propuesta se guarda la hora exacta de ahora (con
+  // segundos), para que dos mediciones del mismo minuto queden en orden.
+  const b = estado.borrador, intacta = b.fecha === b.fechaInicial;
+  const m = { ...b, id: Datos.nuevoId(), pacienteId: estado.pacienteId, fecha: (intacta ? new Date() : new Date(b.fecha)).toISOString() };
+  delete m.revisando; delete m.fechaInicial;
   Datos.guardar("mediciones", m);
   estado.borrador = null; estado.pestana = "evaluacion";
   avisar("Medición guardada.");
@@ -853,9 +1083,9 @@ function cargarEjemplo() {
   const hoy = new Date(), nac = new Date(hoy.getFullYear() - 34, 4, 12).toISOString().slice(0, 10);
   const p = Datos.guardar("pacientes", { id: Datos.nuevoId(), nombre: "Paciente de ejemplo", sexo: "mujer", fechaNac: nac, tallaCm: 162,
     pesoHabitual: 78, munecaCm: 15.5, pesoIdealManual: null, notas: "Datos ficticios para probar la app." });
-  [[60, 82.4, 38.6, 26.9, 98, 110], [30, 80.9, 37.8, 27.3, 96, 109], [0, 79.3, 36.9, 27.8, 94, 108]].forEach(([dias, peso, g, mu, ci, ca]) => {
+  [[60, 82.4, 31.8, 47.6, 38.6, 57.8, 98, 110], [30, 80.9, 30.6, 47.4, 37.8, 58.6, 96, 109], [0, 79.3, 29.3, 47.2, 36.9, 59.5, 94, 108]].forEach(([dias, peso, gk, mk, g, mu, ci, ca]) => {
     const f = new Date(hoy); f.setDate(f.getDate() - dias);
-    Datos.guardar("mediciones", { id: Datos.nuevoId(), pacienteId: p.id, fecha: f.toISOString(), peso, grasaPct: g, musculoPct: mu, musculoCalif: "Estándar", cintura: ci, cadera: ca, periodoPerdida: "" });
+    Datos.guardar("mediciones", { id: Datos.nuevoId(), pacienteId: p.id, fecha: f.toISOString(), peso, grasaKg: gk, musculoKg: mk, grasaPct: g, musculoPct: mu, musculoCalif: "Estándar", cintura: ci, cadera: ca, periodoPerdida: "" });
   });
   estado.pacienteId = p.id;
   cambiarPlan((plan) => { plan.protGkg = 1; plan.grasaPct = 30; plan.hcPct = 50; });
@@ -883,7 +1113,7 @@ const ACCIONES = {
     estado.vista = "pacientes"; estado.editando = null; avisar("Paciente eliminado.");
   },
   pestana: (el) => { estado.pestana = el.dataset.p; estado.borrador = null; },
-  nuevaMedicion: () => { estado.borrador = { fecha: ahoraLocal() }; },
+  nuevaMedicion: () => { const f = ahoraLocal(); estado.borrador = { fecha: f, fechaInicial: f }; },
   cancelarMedicion: () => { estado.borrador = null; },
   revisarMedicion,
   corregirMedicion: () => { estado.borrador.revisando = false; },
@@ -903,12 +1133,62 @@ const ACCIONES = {
     avisar("Se copiaron las porciones sugeridas. Donde la tabla da un rango, elegí vos el valor.");
   },
   agregarAlimento: (el) => {
-    const i = Number(el.dataset.c), texto = document.getElementById("buscar" + i).value.trim();
+    const i = Number(el.dataset.c), texto = document.getElementById("buscar" + i).value.trim(), min = texto.toLowerCase();
+    const prep = Datos.cache.preparaciones.find((x) => etiquetaPrep(x) === texto || x.nombre.toLowerCase() === min);
+    if (prep) return cambiarPlan((p) => p.dias[estado.dia][i].push({ prepId: prep.id, factor: 1 }));
+    const a = ALIMENTOS.find((x) => etiquetaAlimento(x) === texto) || ALIMENTOS.find((x) => x.nombre.toLowerCase() === min);
+    if (!a) return avisar("Elegí un alimento o una preparación de la lista.", "mal");
+    cambiarPlan((p) => p.dias[estado.dia][i].push({ alimentoId: a.id, gramos: a.cantidad }));
+  },
+  quitarAlimento: (el) => cambiarPlan((p) => p.dias[estado.dia][Number(el.dataset.c)].splice(Number(el.dataset.j), 1)),
+  dia: (el) => { estado.dia = Number(el.dataset.d); },
+  // Las copias se hacen con JSON para que el destino no quede "enganchado"
+  // al origen: editar un día después no debe cambiar el otro.
+  copiarDia: () => {
+    const destino = document.getElementById("destinoDia").value;
+    cambiarPlan((p) => C.dias.forEach((_, d) => {
+      if (d !== estado.dia && (destino === "todos" || Number(destino) === d)) p.dias[d] = JSON.parse(JSON.stringify(p.dias[estado.dia]));
+    }));
+    avisar(destino === "todos" ? `Se copió ${C.dias[estado.dia]} a todos los demás días.` : `Se copió ${C.dias[estado.dia]} a ${C.dias[Number(destino)]}.`);
+  },
+  copiarComida: (el) => {
+    const c = Number(el.dataset.c), destino = document.getElementById("destinoComida" + c).value;
+    cambiarPlan((p) => C.dias.forEach((_, d) => {
+      if (d !== estado.dia && (destino === "todos" || Number(destino) === d)) p.dias[d][c] = JSON.parse(JSON.stringify(p.dias[estado.dia][c]));
+    }));
+    avisar(`Se copió ${C.comidas[c].toLowerCase()} de ${C.dias[estado.dia]}.`);
+  },
+  vaciarDia: () => { if (confirm(`¿Vaciar todas las comidas de ${C.dias[estado.dia]}?`)) cambiarPlan((p) => { p.dias[estado.dia] = C.comidas.map(() => []); }); },
+  repartir: (el) => {
+    const clave = el.dataset.clave;
+    cambiarPlan((p) => {
+      const lista = clave === "porciones" ? C.porciones.grupos : C.intercambios;
+      lista.forEach((_, i) => { const total = num(p[clave][i]) || 0; if (total > 0) p[clave + "Reparto"][i] = Motor.repartir(C, total, p.comidasPct); else delete p[clave + "Reparto"][i]; });
+    });
+    avisar("Se propuso un reparto según el % de cada comida. Podés editar cada casilla.");
+  },
+  nuevaPrep: () => { estado.prepEdit = { nombre: "", ingredientes: [] }; },
+  editarPrep: (el) => { estado.prepEdit = JSON.parse(JSON.stringify(prepPorId(el.dataset.id))); },
+  cancelarPrep: () => { estado.prepEdit = null; },
+  agregarIngrediente: () => {
+    const texto = document.getElementById("buscarIngrediente").value.trim();
     const a = ALIMENTOS.find((x) => etiquetaAlimento(x) === texto) || ALIMENTOS.find((x) => x.nombre.toLowerCase() === texto.toLowerCase());
     if (!a) return avisar("Elegí un alimento de la lista.", "mal");
-    cambiarPlan((p) => p.comidas[i].push({ alimentoId: a.id, gramos: a.cantidad }));
+    estado.prepEdit.ingredientes.push({ alimentoId: a.id, cantidad: a.cantidad, modo: "g" });
   },
-  quitarAlimento: (el) => cambiarPlan((p) => p.comidas[Number(el.dataset.c)].splice(Number(el.dataset.j), 1)),
+  quitarIngrediente: (el) => { estado.prepEdit.ingredientes.splice(Number(el.dataset.j), 1); },
+  guardarPrep: () => {
+    const e = estado.prepEdit; e.nombre = document.getElementById("prepNombre").value.trim();
+    if (!e.nombre) return avisar("Poné un nombre a la preparación.", "mal");
+    if (!e.ingredientes.length) return avisar("Agregá al menos un ingrediente.", "mal");
+    if (!e.id) e.id = Datos.nuevoId();
+    Datos.guardar("preparaciones", e); estado.prepEdit = null; avisar("Preparación guardada.");
+  },
+  borrarPrep: () => {
+    const e = estado.prepEdit;
+    if (!confirm(`¿Eliminar la preparación "${e.nombre}"? Se quita también de los planes donde esté usada.`)) return;
+    Datos.borrar("preparaciones", e.id); estado.prepEdit = null; avisar("Preparación eliminada.");
+  },
   imprimir: () => window.print(),
   exportar: () => { descargar(`apoyo-nutricional-${new Date().toISOString().slice(0, 10)}.json`, Datos.exportar()); avisar("Archivo exportado."); },
   ejemplo: cargarEjemplo,
@@ -950,13 +1230,28 @@ document.addEventListener("change", (e) => {
   } else if (d.comida != null) cambiarPlan((p) => { p.comidasPct[Number(d.comida)] = num(el.value) || 0; });
   else if (d.porcion != null) cambiarPlan((p) => { p.porciones[d.porcion] = el.value.trim(); });
   else if (d.intercambio != null) cambiarPlan((p) => { p.intercambios[d.intercambio] = el.value.trim(); });
-  else if (d.gramos) cambiarPlan((p) => { const [i, j] = d.gramos.split(":").map(Number), v = num(el.value); if (v != null && v >= 0) p.comidas[i][j].gramos = v; });
+  else if (d.gramos) cambiarPlan((p) => { const [i, j] = d.gramos.split(":").map(Number), v = num(el.value); if (v != null && v >= 0) p.dias[estado.dia][i][j].gramos = v; });
+  else if (d.factor) cambiarPlan((p) => { const [i, j] = d.factor.split(":").map(Number), v = num(el.value); if (v != null && v > 0) p.dias[estado.dia][i][j].factor = v; });
+  else if (d.repP || d.repI) cambiarPlan((p) => {
+    // Casilla de la matriz de reparto: "grupo:comida".
+    const rep = d.repP ? p.porcionesReparto : p.intercambiosReparto, [g, c] = (d.repP || d.repI).split(":").map(Number);
+    if (!rep[g]) rep[g] = C.comidas.map(() => 0);
+    rep[g][c] = num(el.value) || 0;
+  });
+  else if (d.prep === "nombre") { estado.prepEdit.nombre = el.value; return; }
+  else if (d.prepCant != null) { const v = num(el.value); if (v != null && v > 0) estado.prepEdit.ingredientes[Number(d.prepCant)].cantidad = v; }
+  else if (d.prepModo != null) {
+    // Al cambiar entre gramos y medidas caseras, la cantidad arranca en un valor razonable.
+    const ing = estado.prepEdit.ingredientes[Number(d.prepModo)], a = alimentoPorId(ing.alimentoId);
+    ing.modo = el.value; ing.cantidad = el.value === "u" ? 1 : a.cantidad;
+  }
   else return;
   dibujar();
 });
 
 document.getElementById("btnPacientes").addEventListener("click", () => { estado.vista = "pacientes"; estado.editando = null; estado.borrador = null; dibujar(); });
 document.getElementById("btnAjustes").addEventListener("click", () => { estado.vista = "ajustes"; dibujar(); });
+document.getElementById("btnPreparaciones").addEventListener("click", () => { estado.vista = "preparaciones"; estado.prepEdit = null; dibujar(); });
 
 /* ---------- arranque ---------- */
 (async function iniciar() {

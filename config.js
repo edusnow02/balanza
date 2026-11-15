@@ -1,4 +1,4 @@
-    /* ============================================================================
+/* ============================================================================
    CONFIG — TODAS las constantes de cálculo de la app.
    Editá los números acá; no hace falta tocar index.html.
 
@@ -15,12 +15,16 @@
    fila cuyo "hasta" sea mayor que el valor. "hasta: null" = sin límite.
    ========================================================================== */
 window.CONFIG = {
-  version: "1.0 — adultos",
+  version: "2.0 — adultos",
 
   /* ---------- Validación de carga (plausibilidad, no criterio clínico) ---------- */
   validacion: {
     peso: [20, 300], tallaCm: [100, 230], grasaPct: [3, 75], musculoPct: [10, 95],
     cintura: [40, 220], cadera: [40, 220], muneca: [8, 30],
+    grasaKg: [1, 200], musculoKg: [5, 150],
+    // Si los kg de grasa cargados difieren del peso × % de grasa en más de
+    // este valor, la app avisa: suele ser un error de tipeo.
+    toleranciaGrasaKg: 1.5,
   },
 
   /* ---------- IMC ---------- */
@@ -59,6 +63,9 @@ window.CONFIG = {
   pesoIdeal: {
     // De 25 a 50 años se usa la contextura; fuera de ese rango, la edad.
     edadPorContextura: [25, 50],
+    // Si falta la circunferencia de muñeca se supone esta contextura
+    // (decisión del nutricionista) y la app lo aclara.
+    contexturaSiFaltaMuneca: "Mediana",
     columnasEdad: [[15, 16], [17, 19], [20, 24], [25, 29], [30, 39], [40, 49], [50, 59], [60, 69]],
     // Peso ajustado = coef × (peso actual − peso ideal) + peso ideal.
     // Coeficientes del Excel. Solo se ofrece desde obesidad.
@@ -275,6 +282,14 @@ window.CONFIG = {
   /* ---------- Comidas del día y reparto inicial (%) ---------- */
   comidas: ["Desayuno", "Media mañana", "Almuerzo", "Merienda", "Media tarde", "Cena"],
   comidasPctInicial: [25, 0, 35, 15, 0, 25],
+
+  /* ---------- Plan semanal ---------- */
+  dias: ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"],
+
+  /* ---------- Reparto de porciones e intercambios entre comidas ---------- */
+  // La propuesta automática reparte según el % de cada comida y redondea a
+  // este paso (0.5 = medias porciones), sin cambiar el total indicado.
+  reparto: { paso: 0.5 },
 
   /* ---------- Proteínas de alto valor biológico ---------- */
   pavb: { grupos: ["Lácteos", "Carnes", "Huevos"] },
