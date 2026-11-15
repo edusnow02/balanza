@@ -1,8 +1,7 @@
-onfig · JS
 /* ============================================================================
    CONFIG — TODAS las constantes de cálculo de la app.
    Editá los números acá; no hace falta tocar index.html.
- 
+
    Fuentes:
    - "Tablas y Fórmulas" (Word, Universidad Autónoma de Asunción): puntos de
      corte, ecuaciones, factores y tabla Metropolitan.
@@ -12,14 +11,14 @@ onfig · JS
    - Guía de intercambio de alimentos (MINSA Perú, 2014): aporte por porción.
    - "Ficha de evaluación – PPS Adultos" (Universidad Autónoma de Asunción):
      preguntas del cuestionario y tablas de riesgo de apnea y perímetro sagital.
- 
+
    Convención de las tablas de rangos: cada fila dice "hasta" (límite
    superior EXCLUSIVO). Se recorre de arriba hacia abajo y gana la primera
    fila cuyo "hasta" sea mayor que el valor. "hasta: null" = sin límite.
    ========================================================================== */
 window.CONFIG = {
   version: "4.2 — adultos",
- 
+
   /* ---------- Validación de carga (plausibilidad, no criterio clínico) ---------- */
   validacion: {
     peso: [20, 300], tallaCm: [100, 230], grasaPct: [3, 75], musculoPct: [10, 95],
@@ -29,7 +28,7 @@ window.CONFIG = {
     // este valor, la app avisa: suele ser un error de tipeo.
     toleranciaGrasaKg: 1.5,
   },
- 
+
   /* ---------- IMC ---------- */
   edadAdultoMayor: 65,
   imc: {
@@ -55,13 +54,13 @@ window.CONFIG = {
       { hasta: null, nombre: "Obesidad",             estado: "obesidad" },
     ],
   },
- 
+
   /* ---------- Contextura = talla (cm) / circunferencia de muñeca (cm) ---------- */
   contextura: {
     hombre: { pequenaMayorA: 10.4, grandeMenorA: 9.6 },
     mujer:  { pequenaMayorA: 11.0, grandeMenorA: 10.1 },
   },
- 
+
   /* ---------- Peso ideal (Metropolitan 1983) y peso ajustado ---------- */
   pesoIdeal: {
     // De 25 a 50 años se usa la contextura; fuera de ese rango, la edad.
@@ -162,7 +161,7 @@ window.CONFIG = {
       },
     },
   },
- 
+
   /* ---------- % de peso ideal = peso actual / peso ideal × 100 ---------- */
   pctPesoIdeal: [
     { hasta: 75,   nombre: "Desnutrición grave" },
@@ -174,7 +173,7 @@ window.CONFIG = {
     { hasta: 180,  nombre: "Obesidad II" },
     { hasta: null, nombre: "Obesidad mórbida" },
   ],
- 
+
   /* ---------- % de peso habitual = peso actual / peso habitual × 100 ---------- */
   pctPesoHabitual: [
     { hasta: 48,   nombre: "Por debajo del peso mínimo de sobrevivencia" },
@@ -184,7 +183,7 @@ window.CONFIG = {
     { hasta: 90.01, nombre: "Desnutrición leve — 1er grado" },
     { hasta: null, nombre: "Sin desnutrición según esta tabla" },
   ],
- 
+
   /* ---------- % de pérdida de peso = (habitual − actual) / habitual × 100 ---------- */
   perdidaPeso: [
     { periodo: "1 semana", significativaDesde: 1,   graveMayorA: 2 },
@@ -192,19 +191,19 @@ window.CONFIG = {
     { periodo: "3 meses",  significativaDesde: 7.5, graveMayorA: 7.5 },
     { periodo: "6 meses",  significativaDesde: 10,  graveMayorA: 10 },
   ],
- 
+
   /* ---------- Circunferencia de cintura: riesgo cardiovascular ---------- */
   cintura: {
     hombre: { altoDesde: 94, muyAltoDesde: 102 },
     mujer:  { altoDesde: 80, muyAltoMayorA: 88 },
   },
- 
+
   /* ---------- Relación cintura / cadera ---------- */
   cinturaCadera: {
     hombre: { androideMayorA: 1.0, mixtaDesde: 0.85, bajoRiesgoMenorA: 0.94 },
     mujer:  { androideMayorA: 0.9, mixtaDesde: 0.75, bajoRiesgoMenorA: 0.82 },
   },
- 
+
   /* ---------- Masa grasa ---------- */
   grasa: {
     // Bray. Por debajo de "normalDesde" la tabla no define categoría.
@@ -216,12 +215,12 @@ window.CONFIG = {
     // Se usa solo como estimación cuando no se cargó el % de grasa medido.
     deurenberg: { imc: 1.2, edad: 0.23, sexo: 10.8, constante: 5.4 },
   },
- 
+
   /* ---------- Masa muscular ---------- */
   // El Word no trae puntos de corte de músculo: se registra la calificación
   // que muestra AiLink, sin recalcularla.
   musculo: { calificacionesAilink: ["Bajo", "Insuficiente", "Estándar", "Excelente"] },
- 
+
   /* ---------- Gasto energético ---------- */
   energia: {
     // Harris-Benedict: c + p×peso(kg) + t×talla(cm) − e×edad(años)
@@ -267,7 +266,7 @@ window.CONFIG = {
       "Aumento":       { min: 35, max: 40 },
     },
   },
- 
+
   /* ---------- Proteínas: g por kg de PESO ACTUAL por día ---------- */
   proteinas: {
     rangos: [
@@ -276,27 +275,27 @@ window.CONFIG = {
       { nombre: "Severamente comprometido / desnutrición severa", min: 1.81, max: 2.5 },
     ],
   },
- 
+
   kcalPorGramo: { proteina: 4, hc: 4, grasa: 9 },
- 
+
   /* ---------- Adecuación: se acepta meta ± tolerancia (%) ---------- */
   adecuacion: { tolerancia: 5 },
- 
+
   /* ---------- Comidas del día y reparto inicial (%) ---------- */
   comidas: ["Desayuno", "Media mañana", "Almuerzo", "Merienda", "Media tarde", "Cena"],
   comidasPctInicial: [25, 0, 35, 15, 0, 25],
- 
+
   /* ---------- Plan semanal ---------- */
   dias: ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"],
- 
+
   /* ---------- Reparto de porciones e intercambios entre comidas ---------- */
   // La propuesta automática reparte según el % de cada comida y redondea a
   // este paso (0.5 = medias porciones), sin cambiar el total indicado.
   reparto: { paso: 0.5 },
- 
+
   /* ---------- Proteínas de alto valor biológico ---------- */
   pavb: { grupos: ["Lácteos", "Carnes", "Huevos"] },
- 
+
   /* ---------- Porciones por grupo (Guías Alimentarias del Paraguay 2021) ---------- */
   // La guía paraguaya manda: grupos, porciones sugeridas por edad y sexo, y
   // la equivalencia de una porción. La app las SUGIERE; el nutricionista decide.
@@ -376,7 +375,7 @@ window.CONFIG = {
         aporte: { kcal: 45, hc: 0, prot: 0, grasa: 5 },
         valores: { a19h: "4", a19m: "3", a30h: "4", a30m: "3", a60h: "3", a60m: "2" } },
     ],
- 
+
     // A qué fila de porciones cuenta cada alimento de la tabla de alimentos.
     // Se usa solo para la guía "cuánto llevás cubierto" del plan semanal, que
     // es aproximada. Los grupos que no figuran acá ("Otros") no se cuentan.
@@ -399,7 +398,7 @@ window.CONFIG = {
     // Ajustes > Desarrollo > "Clasificación de lácteos y carnes".
     filaDeAlimento: {
     },
- 
+
     // Cómo pasan a las filas actuales las porciones guardadas con la versión 3
     // (9 grupos, con "tipo" elegido por paciente en Leche y en Carnes).
     // Posición = número de grupo de la versión 3.
@@ -410,7 +409,7 @@ window.CONFIG = {
       "legumbres", "azucares", "aceites",
     ],
   },
- 
+
   /* ---------- Cuestionario (Ficha de evaluación – PPS Adultos, páginas 2 a 6) ---------- */
   // Las preguntas están escritas como en la ficha y en su mismo orden. No se
   // incluyen, por decisión del nutricionista: el examen físico, la fecha,
@@ -490,7 +489,7 @@ window.CONFIG = {
             { id: "fc_jugos", texto: "Jugos comerciales" }, { id: "fc_gelatinas", texto: "Gelatinas" }, { id: "fc_infusiones", texto: "Infusiones" }, { id: "fc_otros", texto: "Otros" },
           ] } },
     ],
- 
+
     // Laboratorio: se pueden cargar varios análisis por paciente, cada uno con
     // su fecha. Para agregar una determinación fija, sumar un renglón acá con
     // un id nuevo. Desde la app también se agregan determinaciones sueltas.
@@ -506,7 +505,7 @@ window.CONFIG = {
         { id: "ac_urico", texto: "Acido Urico" }, { id: "got", texto: "GOT" }, { id: "gpt", texto: "GPT" }, { id: "fosfatasa_alc", texto: "Fosfatasa Alc" },
       ],
     },
- 
+
     // Datos antropométricos, en el orden de la ficha.
     //  - app: lo calcula o ya lo tiene la app (última medición); no se vuelve a cargar.
     //  - sin "app": se carga a mano (valor e interpretación).
@@ -534,9 +533,8 @@ window.CONFIG = {
       // este valor (cm): mujeres > 25, hombres > 23.
       sagital: { campo: "an_sagital", riesgoMayorA: { mujer: 25, hombre: 23 } },
     },
- 
+
     // Comidas del recordatorio, en el orden de la ficha.
     recordatorio: { comidas: ["Desayuno", "Media Mañana", "Almuerzo", "Merienda", "Cena", "Colación"] },
   },
 };
- 
