@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apoyo Nutricional</title>
+<style>
+  :root { --tinta:#1c2421; --suave:#5b6762; --linea:#d9dfdb; --fondo:#f4f6f3; --panel:#fff;
+          --marca:#1f6f54; --marca2:#e3f1eb; --ok:#1a7f4b; --okf:#e2f4e9; --mal:#b3261e; --malf:#fbe6e4; --avi:#8a5a00; --avif:#fdf1d7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--tinta); background:var(--fondo); font-size:16px; line-height:1.4; }
+  header { background:var(--marca); color:#fff; padding:10px 14px; display:flex; gap:8px; align-items:center; }
+  header h1 { font-size:1.05rem; margin:0; font-weight:650; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header button { background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.35); }
+  main { max-width:1000px; margin:0 auto; padding:12px; }
+  nav.pest { display:flex; gap:6px; overflow-x:auto; padding:2px 0 10px; }
+  nav.pest button { white-space:nowrap; border-radius:999px; }
+  nav.pest button.activa { background:var(--marca); color:#fff; border-color:var(--marca); }
+  button { font:inherit; padding:9px 14px; border:1px solid #9aa8a1; background:#fff; border-radius:8px; cursor:pointer; color:var(--tinta); }
+  button.pri { background:var(--marca); border-color:var(--marca); color:#fff; font-weight:600; }
+  button.peligro { color:var(--mal); border-color:#e0b4b0; }
+  button.mini { padding:4px 9px; font-size:.85rem; }
+  .panel { background:var(--panel); border:1px solid var(--linea); border-radius:10px; padding:14px; margin-bottom:12px; }
+  .panel h2 { font-size:1.02rem; margin:0 0 10px; }
+  .panel h3 { font-size:.92rem; margin:14px 0 6px; color:var(--suave); text-transform:uppercase; letter-spacing:.03em; }
+  .campos { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+  label { display:block; font-size:.86rem; color:var(--suave); }
+  label > input, label > select, label > textarea { display:block; width:100%; margin-top:3px; font:inherit; padding:9px; border:1px solid #9aa8a1; border-radius:8px; background:#fff; color:var(--tinta); }
+  input.corto { width:84px; padding:6px; font:inherit; border:1px solid #9aa8a1; border-radius:6px; text-align:right; }
+  .fila { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  table { border-collapse:collapse; width:100%; font-size:.9rem; }
+  th, td { border-bottom:1px solid var(--linea); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--suave); font-weight:600; font-size:.8rem; }
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .scroll { overflow-x:auto; }
+  .dato { display:grid; grid-template-columns:minmax(150px,1fr) 1.4fr; gap:4px 12px; padding:6px 0; border-bottom:1px solid var(--linea); }
+  .dato:last-child { border-bottom:0; }
+  .dato .k { color:var(--suave); font-size:.88rem; }
+  .dato .v b { font-variant-numeric:tabular-nums; }
+  .chip { display:inline-block; padding:1px 9px; border-radius:999px; font-size:.82rem; font-weight:600; background:var(--marca2); color:var(--marca); }
+  .chip.desnutricion, .chip.mal { background:var(--malf); color:var(--mal); }
+  .chip.sobrepeso, .chip.avi { background:var(--avif); color:var(--avi); }
+  .chip.obesidad { background:var(--malf); color:var(--mal); }
+  .chip.ok, .chip.normopeso { background:var(--okf); color:var(--ok); }
+  .aviso { padding:9px 12px; border-radius:8px; margin:8px 0; font-size:.9rem; background:var(--avif); color:var(--avi); border:1px solid #ecd9a8; }
+  .aviso.mal { background:var(--malf); color:var(--mal); border-color:#efc4c0; }
+  .aviso.ok { background:var(--okf); color:var(--ok); border-color:#bfe3cd; }
+  .nota { color:var(--suave); font-size:.84rem; }
+  .lista-pac button { display:block; width:100%; text-align:left; margin-bottom:6px; }
+  .lista-pac small { color:var(--suave); }
+  .grande { font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; }
+  svg text { font-size:11px; fill:var(--suave); }
+  .solo-impresion { display:none; }
+  @media print {
+    header, nav.pest, .no-imprimir, button { display:none !important; }
+    body { background:#fff; font-size:11pt; }
+    main { max-width:none; padding:0; }
+    .panel { border:0; padding:0 0 8px; break-inside:avoid; }
+    .solo-impresion { display:block; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Apoyo Nutricional</h1>
+  <button id="btnPacientes">Pacientes</button>
+  <button id="btnAjustes">Ajustes</button>
+</header>
+<main id="app"></main>
+
+<script src="config.js"></script>
+<script src="alimentos.js"></script>
+<script>
+"use strict";
+
+/* ============================================================================
+   CAPA 1 — MOTOR DE CÁLCULO
+   Funciones puras: reciben números y la CONFIG, devuelven números y textos.
+   No tocan la pantalla ni la base de datos, para poder probarse solas
+   (ver el autotest en Ajustes). Ninguna constante de cálculo vive acá:
+   todas vienen de config.js.
+   ========================================================================== */
+/*MOTOR-INICIO*/
+const Motor = (() => {
+
+  // Busca en una tabla de rangos la primera fila cuyo "hasta" supera al valor.
+  const porRango = (tabla, valor) => tabla.find((f) => f.hasta === null || valor < f.hasta);
+
+  function edadEn(fechaNac, fechaRef) {
+    const n = new Date(fechaNac), r = new Date(fechaRef);
+    let e = r.getFullYear() - n.getFullYear();
+    // Si todavía no cumplió años en el año de referencia, se resta uno.
+    if (r.getMonth() < n.getMonth() || (r.getMonth() === n.getMonth() && r.getDate() < n.getDate())) e--;
+    return e;
+  }
+
+  const imc = (peso, tallaCm) => peso / Math.pow(tallaCm / 100, 2);
+
+  function clasificarIMC(cfg, valor, edad) {
+    const mayor = edad >= cfg.edadAdultoMayor;
+    const fila = porRango(mayor ? cfg.imc.adultoMayor : cfg.imc.adulto, valor);
+    return { nombre: fila.nombre, estado: fila.estado, tabla: mayor ? "adulto mayor" : "adulto" };
+  }
+
+  function contextura(cfg, sexo, tallaCm, munecaCm) {
+    const indice = tallaCm / munecaCm, c = cfg.contextura[sexo];
+    const nombre = indice > c.pequenaMayorA ? "Pequeña" : indice < c.grandeMenorA ? "Grande" : "Mediana";
+    return { indice, nombre };
+  }
+
+  // Peso ideal de la tabla Metropolitan. Devuelve { valor, criterio } o
+  // { valor: null, motivo } cuando la tabla no cubre el caso: en ese caso
+  // el nutricionista lo carga a mano, la app no lo estima.
+  function pesoIdealTabla(cfg, sexo, tallaCm, edad, contexturaNombre) {
+    const pi = cfg.pesoIdeal, fila = pi.metropolitan[sexo][Math.round(tallaCm)];
+    if (!fila) return { valor: null, motivo: "la talla está fuera de la tabla Metropolitan" };
+    let col, criterio;
+    if (edad >= pi.edadPorContextura[0] && edad <= pi.edadPorContextura[1]) {
+      if (!contexturaNombre) return { valor: null, motivo: "falta la circunferencia de muñeca para saber la contextura" };
+      col = pi.columnasEdad.length + ["Pequeña", "Mediana", "Grande"].indexOf(contexturaNombre);
+      criterio = `tabla Metropolitan, contextura ${contexturaNombre.toLowerCase()}`;
+    } else {
+      col = pi.columnasEdad.findIndex(([a, b]) => edad >= a && edad <= b);
+      if (col < 0) return { valor: null, motivo: "la edad está fuera de la tabla Metropolitan" };
+      criterio = `tabla Metropolitan, ${pi.columnasEdad[col].join("–")} años`;
+    }
+    if (fila[col] === null) return { valor: null, motivo: "la tabla Metropolitan no tiene valor para esa talla y edad" };
+    return { valor: fila[col], criterio };
+  }
+
+  function pctPesoIdeal(cfg, actual, ideal) {
+    const pct = actual / ideal * 100;
+    return { pct, nombre: porRango(cfg.pctPesoIdeal, pct).nombre };
+  }
+
+  function pctPesoHabitual(cfg, actual, habitual) {
+    const pct = actual / habitual * 100;
+    return { pct, nombre: porRango(cfg.pctPesoHabitual, pct).nombre };
+  }
+
+  function perdidaPeso(cfg, actual, habitual, periodo) {
+    const pct = (habitual - actual) / habitual * 100;
+    const fila = cfg.perdidaPeso.find((f) => f.periodo === periodo);
+    let nombre = "";
+    if (fila) {
+      nombre = pct > fila.graveMayorA ? "Pérdida grave"
+             : pct >= fila.significativaDesde ? "Pérdida significativa"
+             : pct > 0 ? "Pérdida no significativa" : "Sin pérdida de peso";
+    }
+    return { pct, nombre };
+  }
+
+  const pesoAjustado = (cfg, sexo, actual, ideal) => cfg.pesoIdeal.coefAjustado[sexo] * (actual - ideal) + ideal;
+
+  function riesgoCintura(cfg, sexo, cm) {
+    const c = cfg.cintura[sexo];
+    // Hombre: "muy alto" DESDE 102. Mujer: "muy alto" POR ENCIMA de 88.
+    const muyAlto = c.muyAltoDesde != null ? cm >= c.muyAltoDesde : cm > c.muyAltoMayorA;
+    return muyAlto ? "Riesgo muy alto" : cm >= c.altoDesde ? "Riesgo alto" : "Normal";
+  }
+
+  function cinturaCadera(cfg, sexo, cintura, cadera) {
+    const indice = cintura / cadera, c = cfg.cinturaCadera[sexo];
+    const tipo = indice > c.androideMayorA ? "Androide" : indice >= c.mixtaDesde ? "Mixta" : "Ginecoide";
+    return { indice, tipo, bajoRiesgo: indice < c.bajoRiesgoMenorA };
+  }
+
+  function grasaBray(cfg, sexo, pct) {
+    const b = cfg.grasa.bray[sexo];
+    return pct > b.obesidadMayorA ? "Obesidad" : pct >= b.limiteDesde ? "Límite"
+         : pct >= b.normalDesde ? "Normal" : "Por debajo del rango normal";
+  }
+
+  function deurenberg(cfg, valorImc, edad, sexo) {
+    const d = cfg.grasa.deurenberg;
+    return d.imc * valorImc + d.edad * edad - d.sexo * (sexo === "hombre" ? 1 : 0) - d.constante;
+  }
+
+  function composicion(peso, pctGrasa) {
+    const grasaKg = peso * pctGrasa / 100;
+    return { grasaKg, magraKg: peso - grasaKg };
+  }
+
+  function harrisBenedict(cfg, sexo, peso, tallaCm, edad) {
+    const h = cfg.energia.harrisBenedict[sexo];
+    return h.c + h.p * peso + h.t * tallaCm - h.e * edad;
+  }
+
+  // Reparto de macros. Las proteínas se fijan en g/kg de PESO ACTUAL; grasas
+  // y carbohidratos, en % del valor calórico. Por eso los tres porcentajes
+  // pueden no sumar 100: la app lo informa y el nutricionista decide.
+  function macros(cfg, d) {
+    const k = cfg.kcalPorGramo;
+    const protG = d.protGkg * d.pesoActual, protKcal = protG * k.proteina;
+    const grasaKcal = d.vct * d.grasaPct / 100, hcKcal = d.vct * d.hcPct / 100;
+    const protPct = d.vct > 0 ? protKcal * 100 / d.vct : 0;
+    return {
+      prot:  { g: protG, kcal: protKcal, pct: protPct },
+      grasa: { g: grasaKcal / k.grasa, kcal: grasaKcal, pct: d.grasaPct },
+      hc:    { g: hcKcal / k.hc, kcal: hcKcal, pct: d.hcPct },
+      sumaPct: protPct + d.grasaPct + d.hcPct,
+    };
+  }
+
+  function distribuir(m, vct, pcts) {
+    return pcts.map((p) => ({ pct: p, hc: m.hc.g * p / 100, prot: m.prot.g * p / 100, grasa: m.grasa.g * p / 100, kcal: vct * p / 100 }));
+  }
+
+  const columnaPorciones = (cfg, sexo, edad) =>
+    cfg.porciones.columnas.find((c) => c.sexo === sexo && edad >= c.edadMin && edad <= c.edadMax) || null;
+
+  function totalIntercambios(cfg, cantidades) {
+    const t = { kcal: 0, hc: 0, prot: 0, grasa: 0 };
+    cfg.intercambios.forEach((g, i) => {
+      const n = Number(cantidades[i]) || 0;
+      t.kcal += g.kcal * n; t.hc += g.hc * n; t.prot += g.prot * n; t.grasa += g.grasa * n;
+    });
+    return t;
+  }
+
+  // Nutrientes de un alimento para los gramos indicados: regla de tres sobre
+  // la cantidad de referencia de la tabla (igual que el Excel).
+  function nutrientes(alimento, gramos) {
+    const f = gramos / alimento.cantidad, r = {};
+    ["hc", "prot", "grasa", "kcal", "fibra", "na", "k"].forEach((c) => { r[c] = (alimento[c] || 0) * f; });
+    return r;
+  }
+
+  // items: [{ alimento, gramos }]. Devuelve totales y proteína de alto valor biológico.
+  function totalesAlimentos(cfg, items) {
+    const t = { hc: 0, prot: 0, grasa: 0, kcal: 0, fibra: 0, na: 0, k: 0, protAVB: 0, sinGrupo: 0 };
+    items.forEach(({ alimento, gramos }) => {
+      const n = nutrientes(alimento, gramos);
+      Object.keys(n).forEach((c) => { t[c] += n[c]; });
+      if (cfg.pavb.grupos.includes(alimento.grupo)) t.protAVB += n.prot;
+      if (!alimento.grupo) t.sinGrupo++;
+    });
+    return t;
+  }
+
+  function adecuacion(cfg, total, meta) {
+    if (!(meta > 0)) return { pct: null, ok: false };
+    const pct = total * 100 / meta;
+    return { pct, ok: Math.abs(pct - 100) <= cfg.adecuacion.tolerancia };
+  }
+
+  // Evaluación completa de una medición. Cada bloque se calcula solo si
+  // están sus datos; lo que falta queda en null y la pantalla lo dice.
+  function evaluar(cfg, pac, med) {
+    const ev = { peso: med.peso, tallaCm: pac.tallaCm, sexo: pac.sexo };
+    ev.edad = edadEn(pac.fechaNac, med.fecha);
+    ev.imc = imc(med.peso, pac.tallaCm);
+    ev.imcClase = clasificarIMC(cfg, ev.imc, ev.edad);
+    ev.contextura = pac.munecaCm ? contextura(cfg, pac.sexo, pac.tallaCm, pac.munecaCm) : null;
+
+    if (pac.pesoIdealManual) ev.pesoIdeal = { valor: pac.pesoIdealManual, criterio: "cargado a mano" };
+    else ev.pesoIdeal = pesoIdealTabla(cfg, pac.sexo, pac.tallaCm, ev.edad, ev.contextura && ev.contextura.nombre);
+
+    ev.pctIdeal = ev.pesoIdeal.valor ? pctPesoIdeal(cfg, med.peso, ev.pesoIdeal.valor) : null;
+    ev.pctHabitual = pac.pesoHabitual ? pctPesoHabitual(cfg, med.peso, pac.pesoHabitual) : null;
+    ev.perdida = pac.pesoHabitual ? perdidaPeso(cfg, med.peso, pac.pesoHabitual, med.periodoPerdida) : null;
+    // El peso ajustado se ofrece solo desde obesidad (no en sobrepeso).
+    ev.pesoAjustado = ev.pesoIdeal.valor && ev.imcClase.estado === "obesidad"
+      ? pesoAjustado(cfg, pac.sexo, med.peso, ev.pesoIdeal.valor) : null;
+
+    ev.cintura = med.cintura ? riesgoCintura(cfg, pac.sexo, med.cintura) : null;
+    ev.cinturaCadera = med.cintura && med.cadera ? cinturaCadera(cfg, pac.sexo, med.cintura, med.cadera) : null;
+
+    ev.grasaEstimada = deurenberg(cfg, ev.imc, ev.edad, pac.sexo);
+    ev.grasaPct = med.grasaPct != null ? med.grasaPct : null;
+    ev.grasaClase = ev.grasaPct != null ? grasaBray(cfg, pac.sexo, ev.grasaPct) : null;
+    ev.composicion = ev.grasaPct != null ? composicion(med.peso, ev.grasaPct) : null;
+    return ev;
+  }
+
+  // Energía y macros a partir de la evaluación y de las elecciones del plan.
+  function calcularPlan(cfg, pac, ev, plan) {
+    const usaAjustado = plan.pesoCalculo === "ajustado" && ev.pesoAjustado;
+    const pesoGasto = usaAjustado ? ev.pesoAjustado : ev.peso;
+    const r = { pesoGasto, usaAjustado: !!usaAjustado };
+    r.gmb = harrisBenedict(cfg, pac.sexo, pesoGasto, pac.tallaCm, ev.edad);
+    r.get = r.gmb * plan.fa * plan.fi;
+    r.practica = ev.peso * plan.kcalKg;
+    r.vct = plan.metodo === "practica" ? r.practica : r.get;
+    r.macros = macros(cfg, { vct: r.vct, pesoActual: ev.peso, protGkg: plan.protGkg, grasaPct: plan.grasaPct, hcPct: plan.hcPct });
+    r.comidas = distribuir(r.macros, r.vct, plan.comidasPct);
+    r.sumaComidas = plan.comidasPct.reduce((a, b) => a + b, 0);
+    return r;
+  }
+
+  // Casos de prueba. Los esperados se calcularon a mano con las fórmulas del
+  // Word; el primero coincide además con el ejemplo cargado en el Excel.
+  function autotest(cfg) {
+    const casos = [], cerca = (a, b, tol) => Math.abs(a - b) <= (tol || 0.01);
+    const caso = (nombre, obtenido, esperado, tol) => casos.push({
+      nombre, obtenido, esperado,
+      ok: typeof esperado === "number" ? cerca(obtenido, esperado, tol) : obtenido === esperado });
+
+    caso("Harris-Benedict mujer (67 kg, 150 cm, 22 años)", harrisBenedict(cfg, "mujer", 67, 150, 22), 1470.16);
+    caso("Harris-Benedict hombre (70 kg, 175 cm, 30 años)", harrisBenedict(cfg, "hombre", 70, 175, 30), 1701.47);
+    caso("IMC (67 kg, 150 cm)", imc(67, 150), 29.78);
+    caso("Clasificación IMC 29,78 a los 22 años", clasificarIMC(cfg, 29.78, 22).nombre, "Sobrepeso");
+    caso("Clasificación IMC 29,78 a los 70 años", clasificarIMC(cfg, 29.78, 70).nombre, "Sobrepeso");
+    caso("Clasificación IMC 32 a los 70 años", clasificarIMC(cfg, 32, 70).nombre, "Obesidad");
+    caso("Clasificación IMC 18,4 a los 30 años", clasificarIMC(cfg, 18.4, 30).nombre, "Desnutrición grado I");
+    caso("Peso ajustado mujer (67 kg, ideal 54)", pesoAjustado(cfg, "mujer", 67, 54), 58.94);
+    caso("Peso ajustado hombre (100 kg, ideal 70)", pesoAjustado(cfg, "hombre", 100, 70), 79.6);
+    caso("% peso ideal (67 / 54)", pctPesoIdeal(cfg, 67, 54).pct, 124.07);
+    caso("Clasificación % peso ideal 124", pctPesoIdeal(cfg, 67, 54).nombre, "Obesidad I");
+    caso("Deurenberg mujer (IMC 29,78, 22 años)", deurenberg(cfg, 67 / 2.25, 22, "mujer"), 35.39);
+    caso("Deurenberg hombre (IMC 25, 40 años)", deurenberg(cfg, 25, 40, "hombre"), 23.0);
+    caso("Contextura mujer (150 cm, muñeca 14 cm)", contextura(cfg, "mujer", 150, 14).nombre, "Mediana");
+    caso("Peso ideal tabla, mujer 150 cm, 22 años", pesoIdealTabla(cfg, "mujer", 150, 22, null).valor, 47.7);
+    caso("Peso ideal tabla, mujer 150 cm, 30 años, mediana", pesoIdealTabla(cfg, "mujer", 150, 30, "Mediana").valor, 47.25);
+    caso("Cintura mujer 106 cm", riesgoCintura(cfg, "mujer", 106), "Riesgo muy alto");
+    caso("Cintura hombre 94 cm", riesgoCintura(cfg, "hombre", 94), "Riesgo alto");
+    caso("Grasa 26 % en hombre (Bray)", grasaBray(cfg, "hombre", 26), "Obesidad");
+    caso("Pérdida 6 % en 1 mes", perdidaPeso(cfg, 94, 100, "1 mes").nombre, "Pérdida grave");
+
+    const m = macros(cfg, { vct: 1764.192, pesoActual: 67, protGkg: 1.2, grasaPct: 35, hcPct: 50 });
+    caso("Proteínas 1,2 g/kg × 67 kg (g)", m.prot.g, 80.4);
+    caso("Proteínas como % de 1764 kcal", m.prot.pct, 18.23);
+    caso("Grasas 35 % de 1764 kcal (g)", m.grasa.g, 68.61);
+    caso("Carbohidratos 50 % de 1764 kcal (g)", m.hc.g, 220.52);
+    caso("Suma de porcentajes de macros", m.sumaPct, 103.23);
+    caso("Intercambios: 2 cereales + 1 fruta (kcal)", totalIntercambios(cfg, [2, 0, 1]).kcal, 325);
+    caso("Adecuación 104 / 100 con ±5 %", adecuacion(cfg, 104, 100).ok, true);
+    caso("Adecuación 106 / 100 con ±5 %", adecuacion(cfg, 106, 100).ok, false);
+    return casos;
+  }
+
+  return { edadEn, imc, clasificarIMC, contextura, pesoIdealTabla, pctPesoIdeal, pctPesoHabitual, perdidaPeso,
+           pesoAjustado, riesgoCintura, cinturaCadera, grasaBray, deurenberg, composicion, harrisBenedict,
+           macros, distribuir, columnaPorciones, totalIntercambios, nutrientes, totalesAlimentos, adecuacion,
+           evaluar, calcularPlan, autotest };
+})();
+/*MOTOR-FIN*/
+
+/* ============================================================================
+   CAPA 2 — DATOS (IndexedDB)
+   Guarda pacientes, mediciones y planes en este dispositivo. Mantiene una
+   copia en memoria para que la pantalla no espere a la base en cada lectura.
+   Si el navegador no deja usar IndexedDB (modo privado), la app sigue
+   funcionando en memoria y lo avisa.
+   ========================================================================== */
+const Datos = (() => {
+  const TABLAS = ["pacientes", "mediciones", "planes"];
+  const cache = { pacientes: [], mediciones: [], planes: [] };
+  let db = null, persistente = false;
+
+  function abrir() {
+    return new Promise((resolver) => {
+      let pedido;
+      try { pedido = indexedDB.open("apoyo-nutricional", 1); } catch (e) { return resolver(false); }
+      pedido.onupgradeneeded = () => TABLAS.forEach((t) => pedido.result.createObjectStore(t, { keyPath: "id" }));
+      pedido.onerror = () => resolver(false);
+      pedido.onsuccess = () => { db = pedido.result; resolver(true); };
+    });
+  }
+
+  const leerTabla = (t) => new Promise((ok, mal) => {
+    const p = db.transaction(t).objectStore(t).getAll();
+    p.onsuccess = () => ok(p.result); p.onerror = () => mal(p.error);
+  });
+
+  async function iniciar() {
+    persistente = await abrir();
+    if (persistente) for (const t of TABLAS) cache[t] = await leerTabla(t);
+    return persistente;
+  }
+
+  function escribir(t, operacion, valor) {
+    if (!db) return;
+    const almacen = db.transaction(t, "readwrite").objectStore(t);
+    if (operacion === "put") almacen.put(valor); else almacen.delete(valor);
+  }
+
+  function guardar(t, obj) {
+    const i = cache[t].findIndex((x) => x.id === obj.id);
+    if (i >= 0) cache[t][i] = obj; else cache[t].push(obj);
+    escribir(t, "put", obj);
+    return obj;
+  }
+
+  function borrar(t, id) {
+    cache[t] = cache[t].filter((x) => x.id !== id);
+    escribir(t, "delete", id);
+  }
+
+  const nuevoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  function exportar() {
+    return JSON.stringify({ app: "apoyo-nutricional", exportado: new Date().toISOString(), ...cache }, null, 1);
+  }
+
+  // Importar AGREGA y actualiza por id; no borra lo que ya hay en este dispositivo.
+  function importar(texto) {
+    const d = JSON.parse(texto);
+    if (d.app !== "apoyo-nutricional") throw new Error("El archivo no es una exportación de esta app.");
+    let n = 0;
+    TABLAS.forEach((t) => (d[t] || []).forEach((o) => { guardar(t, o); n++; }));
+    return n;
+  }
+
+  return { iniciar, guardar, borrar, nuevoId, exportar, importar, cache, esPersistente: () => persistente };
+})();
+
+/* ============================================================================
+   CAPA 3 — PANTALLA
+   Arma el HTML a partir del estado y vuelve a dibujar tras cada cambio.
+   Nunca calcula nada clínico: le pregunta todo al Motor.
+   ========================================================================== */
+const C = window.CONFIG, ALIMENTOS = window.ALIMENTOS || [];
+const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null };
+const $app = document.getElementById("app");
+
+/* ---------- utilidades de formato ---------- */
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nf = (v, d = 1) => (v == null || !isFinite(v)) ? "—" : Number(v).toLocaleString("es", { minimumFractionDigits: d, maximumFractionDigits: d });
+// Acepta coma o punto decimal, como se escribe en español.
+const num = (texto) => { const v = parseFloat(String(texto == null ? "" : texto).replace(",", ".")); return isFinite(v) ? v : null; };
+const fechaCorta = (iso) => new Date(iso).toLocaleDateString("es", { day: "2-digit", month: "2-digit", year: "numeric" });
+const ahoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+const etiquetaAlimento = (a) => `${a.nombre} — ${a.medida} (${nf(a.cantidad, 0)} g)`;
+
+const paciente = () => Datos.cache.pacientes.find((p) => p.id === estado.pacienteId) || null;
+const medicionesDe = (id) => Datos.cache.mediciones.filter((m) => m.pacienteId === id).sort((a, b) => a.fecha < b.fecha ? -1 : 1);
+
+function planDe(pac) {
+  let plan = Datos.cache.planes.find((p) => p.id === pac.id);
+  if (!plan) {
+    const act = C.energia.actividad[2], obj = Object.keys(C.energia.formulaPractica)[0];
+    plan = { id: pac.id, metodo: "hb", pesoCalculo: "actual", actividad: act.nombre, fa: act.min,
+             injuria: C.energia.injuria[0].nombre, fi: C.energia.injuria[0].min,
+             objetivo: obj, kcalKg: C.energia.formulaPractica[obj].min,
+             // Los macros arrancan vacíos: los carga el nutricionista.
+             protGkg: 0, grasaPct: 0, hcPct: 0,
+             comidasPct: C.comidasPctInicial.slice(), columna: "", porciones: {}, intercambios: {},
+             comidas: C.comidas.map(() => []) };
+  }
+  return plan;
+}
+
+// Evaluación y plan de la última medición del paciente (o null si no hay).
+function contexto(pac) {
+  const meds = medicionesDe(pac.id);
+  if (!meds.length) return null;
+  const med = meds[meds.length - 1], ev = Motor.evaluar(C, pac, med), plan = planDe(pac);
+  return { meds, med, ev, plan, calc: Motor.calcularPlan(C, pac, ev, plan) };
+}
+
+function chipAdecuacion(total, meta) {
+  const a = Motor.adecuacion(C, total, meta);
+  if (a.pct == null) return "";
+  return `<span class="chip ${a.ok ? "ok" : "mal"}">${nf(a.pct, 1)} %</span>`;
+}
+
+/* ---------- vistas ---------- */
+function vistaPacientes() {
+  const lista = Datos.cache.pacientes.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  return `
+  <div class="panel">
+    <h2>Pacientes</h2>
+    ${lista.length ? `<div class="lista-pac">${lista.map((p) => {
+      const n = medicionesDe(p.id).length;
+      return `<button data-accion="abrir" data-id="${p.id}"><b>${esc(p.nombre)}</b><br><small>${p.sexo === "hombre" ? "Hombre" : "Mujer"} · ${Motor.edadEn(p.fechaNac, new Date())} años · ${n} medición${n === 1 ? "" : "es"}</small></button>`;
+    }).join("")}</div>` : `<p class="nota">Todavía no hay pacientes. Creá uno, o cargá los datos de ejemplo desde Ajustes para probar la app.</p>`}
+    <div class="fila"><button class="pri" data-accion="nuevoPaciente">+ Nuevo paciente</button></div>
+  </div>`;
+}
+
+function formPaciente(p) {
+  p = p || {};
+  return `
+  <div class="panel">
+    <h2>${p.id ? "Editar paciente" : "Nuevo paciente"}</h2>
+    <form id="fPaciente" class="campos">
+      <label>Nombre y apellido<input name="nombre" required value="${esc(p.nombre)}"></label>
+      <label>Sexo<select name="sexo"><option value="mujer" ${p.sexo === "mujer" ? "selected" : ""}>Mujer</option><option value="hombre" ${p.sexo === "hombre" ? "selected" : ""}>Hombre</option></select></label>
+      <label>Fecha de nacimiento<input name="fechaNac" type="date" required value="${esc(p.fechaNac)}"></label>
+      <label>Talla (cm)<input name="tallaCm" inputmode="decimal" required value="${esc(p.tallaCm)}"></label>
+      <label>Peso habitual (kg)<input name="pesoHabitual" inputmode="decimal" value="${esc(p.pesoHabitual)}"></label>
+      <label>Circunferencia de muñeca (cm)<input name="munecaCm" inputmode="decimal" value="${esc(p.munecaCm)}"></label>
+      <label>Peso ideal a mano (kg) — opcional<input name="pesoIdealManual" inputmode="decimal" value="${esc(p.pesoIdealManual)}" placeholder="vacío = tabla Metropolitan"></label>
+      <label style="grid-column:1/-1">Notas<textarea name="notas" rows="2">${esc(p.notas)}</textarea></label>
+    </form>
+    <div class="fila">
+      <button class="pri" data-accion="guardarPaciente">Guardar</button>
+      <button data-accion="cancelar">Cancelar</button>
+      ${p.id ? `<button class="peligro" data-accion="borrarPaciente">Eliminar paciente</button>` : ""}
+    </div>
+  </div>`;
+}
+
+const PESTANAS = [["evaluacion", "Evaluación"], ["mediciones", "Mediciones"], ["plan", "Calorías y macros"],
+                  ["porciones", "Porciones"], ["planificador", "Planificador"], ["informe", "Informe"]];
+
+function vistaPaciente() {
+  const pac = paciente();
+  if (!pac) { estado.vista = "pacientes"; return vistaPacientes(); }
+  if (estado.editando === "paciente") return formPaciente(pac);
+  const ctx = contexto(pac);
+  const cuerpo = estado.pestana === "mediciones" ? pestanaMediciones(pac)
+    : !ctx ? `<div class="panel"><p>Este paciente todavía no tiene mediciones. Cargá la primera para ver la evaluación y los cálculos.</p><div class="fila"><button class="pri" data-accion="pestana" data-p="mediciones">Cargar medición</button></div></div>`
+    : estado.pestana === "plan" ? pestanaPlan(pac, ctx)
+    : estado.pestana === "porciones" ? pestanaPorciones(pac, ctx)
+    : estado.pestana === "planificador" ? pestanaPlanificador(pac, ctx)
+    : estado.pestana === "informe" ? pestanaInforme(pac, ctx)
+    : pestanaEvaluacion(pac, ctx);
+  return `
+  <div class="panel no-imprimir" style="padding:10px 14px">
+    <div class="fila" style="margin:0;justify-content:space-between">
+      <div><b>${esc(pac.nombre)}</b> <span class="nota">· ${pac.sexo === "hombre" ? "Hombre" : "Mujer"} · ${Motor.edadEn(pac.fechaNac, new Date())} años · ${nf(pac.tallaCm, 0)} cm</span></div>
+      <button class="mini" data-accion="editarPaciente">Editar ficha</button>
+    </div>
+  </div>
+  <nav class="pest">${PESTANAS.map(([id, t]) => `<button class="${estado.pestana === id ? "activa" : ""}" data-accion="pestana" data-p="${id}">${t}</button>`).join("")}</nav>
+  ${cuerpo}`;
+}
+
+const dato = (k, v) => `<div class="dato"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+function bloqueEvaluacion(pac, ctx) {
+  const { ev, med } = ctx, f = [];
+  f.push(dato("Peso actual", `<b>${nf(ev.peso)} kg</b> <span class="nota">(${fechaCorta(med.fecha)})</span>`));
+  f.push(dato("IMC", `<b>${nf(ev.imc, 2)}</b> <span class="chip ${ev.imcClase.estado}">${esc(ev.imcClase.nombre)}</span> <span class="nota">tabla de ${ev.imcClase.tabla}</span>`));
+  f.push(dato("% de grasa corporal", ev.grasaPct != null
+    ? `<b>${nf(ev.grasaPct)} %</b> <span class="chip ${ev.grasaClase === "Normal" ? "ok" : ev.grasaClase === "Obesidad" ? "mal" : "avi"}">${esc(ev.grasaClase)}</span> <span class="nota">Bray · grasa ${nf(ev.composicion.grasaKg)} kg, masa magra ${nf(ev.composicion.magraKg)} kg</span>`
+    : `<span class="nota">No se cargó. Estimación por Deurenberg: ${nf(ev.grasaEstimada)} %</span>`));
+  f.push(dato("% de músculo", med.musculoPct != null
+    ? `<b>${nf(med.musculoPct)} %</b> ${med.musculoCalif ? `<span class="chip">${esc(med.musculoCalif)}</span> <span class="nota">calificación de AiLink</span>` : ""}`
+    : `<span class="nota">No se cargó</span>`));
+  f.push(dato("Contextura", ev.contextura ? `<b>${esc(ev.contextura.nombre)}</b> <span class="nota">talla/muñeca = ${nf(ev.contextura.indice, 2)}</span>` : `<span class="nota">Falta la circunferencia de muñeca</span>`));
+  f.push(dato("Peso ideal", ev.pesoIdeal.valor ? `<b>${nf(ev.pesoIdeal.valor)} kg</b> <span class="nota">${esc(ev.pesoIdeal.criterio)}</span>` : `<span class="nota">Sin dato: ${esc(ev.pesoIdeal.motivo)}. Podés cargarlo a mano en la ficha.</span>`));
+  if (ev.pctIdeal) f.push(dato("% de peso ideal", `<b>${nf(ev.pctIdeal.pct)} %</b> <span class="chip">${esc(ev.pctIdeal.nombre)}</span>`));
+  if (ev.pctHabitual) f.push(dato("% de peso habitual", `<b>${nf(ev.pctHabitual.pct)} %</b> <span class="chip">${esc(ev.pctHabitual.nombre)}</span>`));
+  if (ev.perdida && ev.perdida.pct > 0) f.push(dato("% de pérdida de peso", `<b>${nf(ev.perdida.pct)} %</b> ${ev.perdida.nombre ? `<span class="chip">${esc(ev.perdida.nombre)}</span> <span class="nota">en ${esc(med.periodoPerdida)}</span>` : `<span class="nota">indicá el período en la medición para clasificarla</span>`}`));
+  if (ev.pesoAjustado) f.push(dato("Peso ajustado", `<b>${nf(ev.pesoAjustado)} kg</b> <span class="nota">se ofrece desde obesidad</span>`));
+  if (ev.cintura) f.push(dato("Cintura", `<b>${nf(med.cintura)} cm</b> <span class="chip ${ev.cintura === "Normal" ? "ok" : "mal"}">${esc(ev.cintura)}</span> <span class="nota">riesgo cardiovascular</span>`));
+  if (ev.cinturaCadera) f.push(dato("Cintura / cadera", `<b>${nf(ev.cinturaCadera.indice, 2)}</b> <span class="chip">${esc(ev.cinturaCadera.tipo)}</span> <span class="nota">${ev.cinturaCadera.bajoRiesgo ? "dentro de bajo riesgo" : "fuera de bajo riesgo"}</span>`));
+  return f.join("");
+}
+
+function pestanaEvaluacion(pac, ctx) {
+  return `<div class="panel"><h2>Evaluación del estado nutricional</h2>${bloqueEvaluacion(pac, ctx)}
+    <p class="nota">Calculado sobre la última medición. Los puntos de corte salen de config.js.</p></div>`;
+}
+
+function pestanaMediciones(pac) {
+  const meds = medicionesDe(pac.id), b = estado.borrador;
+  let form;
+  if (b && b.revisando) {
+    // Paso de confirmación: se muestra lo que se va a guardar antes de guardarlo.
+    const avisos = [];
+    const rango = (campo, nombre) => { const r = C.validacion[campo], v = b[campo === "peso" ? "peso" : campo];
+      if (v != null && (v < r[0] || v > r[1])) avisos.push(`${nombre} ${nf(v)} está fuera del rango esperado (${r[0]}–${r[1]}). Revisá si está bien tipeado.`); };
+    rango("peso", "El peso"); rango("grasaPct", "El % de grasa"); rango("musculoPct", "El % de músculo"); rango("cintura", "La cintura"); rango("cadera", "La cadera");
+    const previo = meds[meds.length - 1];
+    if (previo && Math.abs(b.peso - previo.peso) > previo.peso * 0.1) avisos.push(`El peso cambia más de 10 % respecto de la medición anterior (${nf(previo.peso)} kg).`);
+    form = `<h2>Confirmar medición</h2>
+      ${avisos.map((a) => `<div class="aviso">${esc(a)}</div>`).join("")}
+      ${dato("Fecha", esc(new Date(b.fecha).toLocaleString("es")))}
+      ${dato("Peso", `<b>${nf(b.peso)} kg</b> <span class="nota">IMC ${nf(Motor.imc(b.peso, pac.tallaCm), 2)}</span>`)}
+      ${b.grasaPct != null ? dato("% de grasa", `<b>${nf(b.grasaPct)} %</b>`) : ""}
+      ${b.musculoPct != null ? dato("% de músculo", `<b>${nf(b.musculoPct)} %</b> ${esc(b.musculoCalif || "")}`) : ""}
+      ${b.cintura != null ? dato("Cintura", `<b>${nf(b.cintura)} cm</b>`) : ""}
+      ${b.cadera != null ? dato("Cadera", `<b>${nf(b.cadera)} cm</b>`) : ""}
+      <div class="fila"><button class="pri" data-accion="confirmarMedicion">Guardar</button><button data-accion="corregirMedicion">Corregir</button></div>`;
+  } else if (b) {
+    form = `<h2>Nueva medición</h2>
+      <p class="nota">Copiá los valores que muestra AiLink. Solo el peso es obligatorio.</p>
+      <form id="fMedicion" class="campos">
+        <label>Peso (kg) *<input name="peso" inputmode="decimal" required value="${esc(b.peso)}" autofocus></label>
+        <label>% de grasa (BFR)<input name="grasaPct" inputmode="decimal" value="${esc(b.grasaPct)}"></label>
+        <label>% de músculo (tasa muscular)<input name="musculoPct" inputmode="decimal" value="${esc(b.musculoPct)}"></label>
+        <label>Calificación del músculo en AiLink<select name="musculoCalif"><option value="">—</option>${C.musculo.calificacionesAilink.map((c) => `<option ${b.musculoCalif === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+        <label>Cintura (cm)<input name="cintura" inputmode="decimal" value="${esc(b.cintura)}"></label>
+        <label>Cadera (cm)<input name="cadera" inputmode="decimal" value="${esc(b.cadera)}"></label>
+        <label>Período de la pérdida de peso<select name="periodoPerdida"><option value="">—</option>${C.perdidaPeso.map((f) => `<option ${b.periodoPerdida === f.periodo ? "selected" : ""}>${esc(f.periodo)}</option>`).join("")}</select></label>
+        <label>Fecha y hora<input name="fecha" type="datetime-local" value="${esc(b.fecha)}"></label>
+      </form>
+      <div class="fila"><button class="pri" data-accion="revisarMedicion">Revisar</button><button data-accion="cancelarMedicion">Cancelar</button></div>`;
+  } else {
+    form = `<div class="fila" style="margin:0"><button class="pri" data-accion="nuevaMedicion">+ Nueva medición</button></div>`;
+  }
+
+  const series = { peso: ["Peso (kg)", (m) => m.peso], imc: ["IMC", (m) => Motor.imc(m.peso, pac.tallaCm)],
+                   grasaPct: ["% de grasa", (m) => m.grasaPct], musculoPct: ["% de músculo", (m) => m.musculoPct] };
+  return `
+  <div class="panel no-imprimir">${form}</div>
+  ${meds.length ? `<div class="panel"><h2>Evolución</h2>
+    <div class="fila no-imprimir" style="margin:0 0 8px">${Object.entries(series).map(([k, [t]]) => `<button class="mini ${estado.graf === k ? "pri" : ""}" data-accion="graf" data-g="${k}">${t}</button>`).join("")}</div>
+    ${grafico(meds, series[estado.graf][1], series[estado.graf][0])}
+    <div class="scroll"><table><tr><th>Fecha</th><th class="n">Peso</th><th class="n">IMC</th><th class="n">% grasa</th><th class="n">% músculo</th><th class="n">Cintura</th><th class="n">Cadera</th><th class="no-imprimir"></th></tr>
+    ${meds.slice().reverse().map((m) => `<tr><td>${fechaCorta(m.fecha)}</td><td class="n">${nf(m.peso)}</td><td class="n">${nf(Motor.imc(m.peso, pac.tallaCm), 2)}</td><td class="n">${nf(m.grasaPct)}</td><td class="n">${nf(m.musculoPct)}</td><td class="n">${nf(m.cintura)}</td><td class="n">${nf(m.cadera)}</td><td class="no-imprimir"><button class="mini peligro" data-accion="borrarMedicion" data-id="${m.id}">Eliminar</button></td></tr>`).join("")}
+    </table></div></div>` : ""}`;
+}
+
+// Gráfico de líneas propio (SVG), sin librerías externas: así no depende de
+// ningún CDN y funciona sin internet.
+function grafico(meds, valor, titulo) {
+  const pts = meds.map((m) => ({ x: new Date(m.fecha).getTime(), y: valor(m), f: m.fecha })).filter((p) => p.y != null && isFinite(p.y));
+  if (pts.length < 2) return `<p class="nota">Hacen falta al menos dos mediciones con ${esc(titulo.toLowerCase())} para dibujar la evolución.</p>`;
+  const W = 640, H = 220, mi = 46, md = 14, ms = 14, mb = 26;
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  let y0 = Math.min(...ys), y1 = Math.max(...ys); if (y0 === y1) { y0 -= 1; y1 += 1; }
+  const margen = (y1 - y0) * 0.15; y0 -= margen; y1 += margen;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs) === x0 ? x0 + 1 : Math.max(...xs);
+  const px = (x) => mi + (x - x0) / (x1 - x0) * (W - mi - md), py = (y) => ms + (y1 - y) / (y1 - y0) * (H - ms - mb);
+  const guias = [0, 0.5, 1].map((t) => { const y = y0 + (y1 - y0) * t; return `<line x1="${mi}" x2="${W - md}" y1="${py(y)}" y2="${py(y)}" stroke="#d9dfdb"/><text x="${mi - 6}" y="${py(y) + 4}" text-anchor="end">${nf(y, 1)}</text>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución de ${esc(titulo)}" style="width:100%;height:auto;max-height:260px">
+    ${guias}
+    <polyline fill="none" stroke="#1f6f54" stroke-width="2.5" points="${pts.map((p) => `${px(p.x)},${py(p.y)}`).join(" ")}"/>
+    ${pts.map((p) => `<circle cx="${px(p.x)}" cy="${py(p.y)}" r="4" fill="#1f6f54"><title>${fechaCorta(p.f)}: ${nf(p.y, 1)}</title></circle>`).join("")}
+    <text x="${mi}" y="${H - 6}">${fechaCorta(pts[0].f)}</text><text x="${W - md}" y="${H - 6}" text-anchor="end">${fechaCorta(pts[pts.length - 1].f)}</text>
+  </svg>`;
+}
+
+const opciones = (lista, actual) => lista.map((o) => `<option ${o === actual ? "selected" : ""}>${esc(o)}</option>`).join("");
+
+function pestanaPlan(pac, ctx) {
+  const { ev, plan, calc } = ctx, m = calc.macros;
+  const act = C.energia.actividad.find((a) => a.nombre === plan.actividad) || C.energia.actividad[0];
+  const inj = C.energia.injuria.find((a) => a.nombre === plan.injuria) || C.energia.injuria[0];
+  const fp = C.energia.formulaPractica[plan.objetivo];
+  const fuera = (v, r) => v < r.min || v > r.max;
+  const sumaOk = Math.abs(m.sumaPct - 100) < 0.05;
+  return `
+  <div class="panel"><h2>Gasto energético</h2>
+    <div class="campos">
+      <label>Peso para el gasto basal<select data-plan="pesoCalculo"><option value="actual" ${plan.pesoCalculo === "actual" ? "selected" : ""}>Peso actual (${nf(ev.peso)} kg)</option>${ev.pesoAjustado ? `<option value="ajustado" ${plan.pesoCalculo === "ajustado" ? "selected" : ""}>Peso ajustado (${nf(ev.pesoAjustado)} kg)</option>` : ""}</select></label>
+      <label>Nivel de actividad<select data-plan="actividad">${opciones(C.energia.actividad.map((a) => a.nombre), plan.actividad)}</select></label>
+      <label>Factor de actividad (${nf(act.min, 1)} – ${nf(act.max, 1)})<input data-plan="fa" inputmode="decimal" value="${esc(plan.fa)}"></label>
+      <label>Situación clínica<select data-plan="injuria">${opciones(C.energia.injuria.map((a) => a.nombre), plan.injuria)}</select></label>
+      <label>Factor de injuria (${nf(inj.min, 1)} – ${nf(inj.max, 1)})<input data-plan="fi" inputmode="decimal" value="${esc(plan.fi)}"></label>
+    </div>
+    <p class="nota">${esc(act.detalle)}</p>
+    ${fuera(plan.fa, act) ? `<div class="aviso">El factor de actividad ${nf(plan.fa, 2)} está fuera del rango de la tabla para "${esc(act.nombre)}".</div>` : ""}
+    ${fuera(plan.fi, inj) ? `<div class="aviso">El factor de injuria ${nf(plan.fi, 2)} está fuera del rango de la tabla para "${esc(inj.nombre)}".</div>` : ""}
+    ${dato("Gasto basal (Harris-Benedict)", `<b>${nf(calc.gmb, 0)} kcal</b> <span class="nota">con ${nf(calc.pesoGasto)} kg, ${nf(pac.tallaCm, 0)} cm, ${ev.edad} años</span>`)}
+    ${dato("Gasto total", `<b>${nf(calc.get, 0)} kcal</b> <span class="nota">basal × ${nf(plan.fa, 2)} × ${nf(plan.fi, 2)}</span>`)}
+    <h3>Fórmula práctica</h3>
+    <div class="campos">
+      <label>Objetivo<select data-plan="objetivo">${opciones(Object.keys(C.energia.formulaPractica), plan.objetivo)}</select></label>
+      <label>Kcal por kg (${fp.min} – ${fp.max})<input data-plan="kcalKg" inputmode="decimal" value="${esc(plan.kcalKg)}"></label>
+    </div>
+    ${fuera(plan.kcalKg, fp) ? `<div class="aviso">${nf(plan.kcalKg, 1)} kcal/kg está fuera del rango de la tabla para "${esc(plan.objetivo)}".</div>` : ""}
+    ${dato("Resultado", `<b>${nf(calc.practica, 0)} kcal</b> <span class="nota">${nf(ev.peso)} kg × ${nf(plan.kcalKg, 1)} kcal/kg</span>`)}
+    <h3>Valor calórico total a usar</h3>
+    <div class="campos"><label>Método<select data-plan="metodo"><option value="hb" ${plan.metodo === "hb" ? "selected" : ""}>Harris-Benedict con factores</option><option value="practica" ${plan.metodo === "practica" ? "selected" : ""}>Fórmula práctica</option></select></label></div>
+    <p class="grande">${nf(calc.vct, 0)} kcal/día</p>
+  </div>
+
+  <div class="panel"><h2>Macronutrientes</h2>
+    <div class="campos">
+      <label>Proteínas (g por kg de peso actual)<input data-plan="protGkg" inputmode="decimal" value="${esc(plan.protGkg)}"></label>
+      <label>Grasas (% del valor calórico)<input data-plan="grasaPct" inputmode="decimal" value="${esc(plan.grasaPct)}"></label>
+      <label>Carbohidratos (% del valor calórico)<input data-plan="hcPct" inputmode="decimal" value="${esc(plan.hcPct)}"></label>
+    </div>
+    <p class="nota">Rangos de proteínas: ${C.proteinas.rangos.map((r) => `${esc(r.nombre)} ${nf(r.min, 2)}–${nf(r.max, 2)} g/kg`).join(" · ")}</p>
+    <div class="scroll"><table><tr><th></th><th class="n">Gramos</th><th class="n">Kcal</th><th class="n">%</th></tr>
+      <tr><td>Proteínas</td><td class="n">${nf(m.prot.g)}</td><td class="n">${nf(m.prot.kcal, 0)}</td><td class="n">${nf(m.prot.pct)}</td></tr>
+      <tr><td>Grasas</td><td class="n">${nf(m.grasa.g)}</td><td class="n">${nf(m.grasa.kcal, 0)}</td><td class="n">${nf(m.grasa.pct)}</td></tr>
+      <tr><td>Carbohidratos</td><td class="n">${nf(m.hc.g)}</td><td class="n">${nf(m.hc.kcal, 0)}</td><td class="n">${nf(m.hc.pct)}</td></tr>
+      <tr><th>Total</th><th class="n"></th><th class="n">${nf(m.prot.kcal + m.grasa.kcal + m.hc.kcal, 0)}</th><th class="n">${nf(m.sumaPct)}</th></tr></table></div>
+    ${!plan.protGkg && !plan.grasaPct && !plan.hcPct ? `<div class="aviso">Cargá las proteínas (g/kg) y los porcentajes de grasas y carbohidratos para este paciente.</div>`
+      : sumaOk ? `<div class="aviso ok">Los tres macronutrientes suman 100 %.</div>`
+      : `<div class="aviso">Los macronutrientes suman ${nf(m.sumaPct)} %, no 100 %. Ajustá grasas o carbohidratos. <button class="mini no-imprimir" data-accion="completarHC">Poner en carbohidratos el resto (${nf(100 - m.prot.pct - plan.grasaPct)} %)</button></div>`}
+  </div>
+
+  <div class="panel"><h2>Distribución por comida</h2>
+    <div class="scroll"><table><tr><th>Comida</th><th class="n">%</th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
+    ${calc.comidas.map((c, i) => `<tr><td>${esc(C.comidas[i])}</td><td class="n"><input class="corto" data-comida="${i}" inputmode="decimal" value="${esc(c.pct)}"></td><td class="n">${nf(c.kcal, 0)}</td><td class="n">${nf(c.hc)}</td><td class="n">${nf(c.prot)}</td><td class="n">${nf(c.grasa)}</td></tr>`).join("")}
+    <tr><th>Total</th><th class="n">${nf(calc.sumaComidas, 0)}</th><th colspan="4"></th></tr></table></div>
+    ${Math.abs(calc.sumaComidas - 100) > 0.05 ? `<div class="aviso">Los porcentajes de las comidas suman ${nf(calc.sumaComidas, 0)} %, no 100 %.</div>` : ""}
+  </div>`;
+}
+
+function pestanaPorciones(pac, ctx) {
+  const { ev, plan, calc } = ctx, m = calc.macros;
+  const auto = Motor.columnaPorciones(C, pac.sexo, ev.edad);
+  const col = C.porciones.columnas.find((c) => c.id === plan.columna) || auto;
+  const ti = Motor.totalIntercambios(C, C.intercambios.map((_, i) => plan.intercambios[i]));
+  return `
+  <div class="panel"><h2>Porciones sugeridas por grupo de alimentos</h2>
+    <p class="nota">Guías Alimentarias del Paraguay 2021. Son valores para población sana: la app los sugiere y vos decidís cuántas indicar.</p>
+    <div class="campos"><label>Columna de referencia<select data-plan="columna"><option value="">Automática por edad y sexo${auto ? ` (${esc(auto.nombre)})` : " (sin columna para esta edad)"}</option>${C.porciones.columnas.map((c) => `<option value="${c.id}" ${plan.columna === c.id ? "selected" : ""}>${esc(c.nombre)} — ${c.kcal} kcal</option>`).join("")}</select></label></div>
+    ${col ? `
+    <div class="aviso">La columna "${esc(col.nombre)}" está pensada para ${nf(col.kcal, 0)} kcal. El valor calórico calculado para este paciente es ${nf(calc.vct, 0)} kcal (${nf((calc.vct - col.kcal) * 100 / col.kcal, 0)} % de diferencia). Ajustá las porciones en consecuencia.</div>
+    <div class="scroll"><table><tr><th>Grupo y equivalencia de una porción</th><th class="n">Sugeridas</th><th class="n">Indicadas</th></tr>
+    ${C.porciones.grupos.map((g, i) => `<tr><td><b>${esc(g.nombre)}</b><br><span class="nota">${esc(g.porcion)}</span></td><td class="n">${esc(g.valores[col.id])}</td><td class="n"><input class="corto" data-porcion="${i}" inputmode="decimal" value="${esc(plan.porciones[i])}"></td></tr>`).join("")}
+    </table></div>
+    <div class="fila no-imprimir"><button data-accion="copiarPorciones">Copiar las sugeridas</button></div>
+    <p class="nota">Esta tabla no trae el aporte de calorías y macros por porción, así que acá no se calcula la adecuación. Para controlarla usá los intercambios de abajo o el planificador.</p>`
+    : `<div class="aviso">No hay columna para ${ev.edad} años en esta versión (adultos desde 19). Elegí una a mano si corresponde.</div>`}
+  </div>
+
+  <div class="panel"><h2>Intercambios</h2>
+    <p class="nota">Aporte por porción de la Guía de intercambio de alimentos (Perú, 2014). Cargá cuántas porciones indicás de cada grupo y se compara contra la meta, con ±${C.adecuacion.tolerancia} % de tolerancia.</p>
+    <div class="scroll"><table><tr><th>Grupo</th><th class="n">Porciones</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th></tr>
+    ${C.intercambios.map((g, i) => { const n = Number(plan.intercambios[i]) || 0; return `<tr><td>${esc(g.grupo)} <span class="nota">(${g.kcal} kcal)</span></td><td class="n"><input class="corto" data-intercambio="${i}" inputmode="decimal" value="${esc(plan.intercambios[i])}"></td><td class="n">${nf(g.kcal * n, 0)}</td><td class="n">${nf(g.hc * n, 0)}</td><td class="n">${nf(g.prot * n, 0)}</td><td class="n">${nf(g.grasa * n, 0)}</td></tr>`; }).join("")}
+    <tr><th>Total</th><th></th><th class="n">${nf(ti.kcal, 0)}</th><th class="n">${nf(ti.hc, 0)}</th><th class="n">${nf(ti.prot, 0)}</th><th class="n">${nf(ti.grasa, 0)}</th></tr>
+    <tr><th>Meta</th><th></th><th class="n">${nf(calc.vct, 0)}</th><th class="n">${nf(m.hc.g, 0)}</th><th class="n">${nf(m.prot.g, 0)}</th><th class="n">${nf(m.grasa.g, 0)}</th></tr>
+    <tr><th>Adecuación</th><th></th><th class="n">${chipAdecuacion(ti.kcal, calc.vct)}</th><th class="n">${chipAdecuacion(ti.hc, m.hc.g)}</th><th class="n">${chipAdecuacion(ti.prot, m.prot.g)}</th><th class="n">${chipAdecuacion(ti.grasa, m.grasa.g)}</th></tr>
+    </table></div>
+  </div>`;
+}
+
+function itemsDe(plan) {
+  return plan.comidas.map((lista) => lista.map((it) => ({ alimento: ALIMENTOS.find((a) => a.id === it.alimentoId), gramos: it.gramos })).filter((x) => x.alimento));
+}
+
+function pestanaPlanificador(pac, ctx) {
+  const { plan, calc } = ctx, m = calc.macros, porComida = itemsDe(plan);
+  const total = Motor.totalesAlimentos(C, porComida.flat());
+  return `
+  <datalist id="listaAlimentos">${ALIMENTOS.map((a) => `<option value="${esc(etiquetaAlimento(a))}">`).join("")}</datalist>
+  <div class="panel"><h2>Adecuación del día</h2>
+    <div class="scroll"><table><tr><th></th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
+    <tr><td>Planificado</td><td class="n">${nf(total.kcal, 0)}</td><td class="n">${nf(total.hc)}</td><td class="n">${nf(total.prot)}</td><td class="n">${nf(total.grasa)}</td></tr>
+    <tr><td>Meta</td><td class="n">${nf(calc.vct, 0)}</td><td class="n">${nf(m.hc.g)}</td><td class="n">${nf(m.prot.g)}</td><td class="n">${nf(m.grasa.g)}</td></tr>
+    <tr><th>Adecuación (±${C.adecuacion.tolerancia} %)</th><th class="n">${chipAdecuacion(total.kcal, calc.vct)}</th><th class="n">${chipAdecuacion(total.hc, m.hc.g)}</th><th class="n">${chipAdecuacion(total.prot, m.prot.g)}</th><th class="n">${chipAdecuacion(total.grasa, m.grasa.g)}</th></tr></table></div>
+    <p class="nota">Proteínas de alto valor biológico: ${total.prot > 0 ? `${nf(total.protAVB)} g (${nf(total.protAVB * 100 / total.prot, 0)} % de las proteínas)` : "—"} · Fibra ${nf(total.fibra)} g · Sodio ${nf(total.na, 0)} mg · Potasio ${nf(total.k, 0)} mg</p>
+    ${total.sinGrupo ? `<div class="aviso">${total.sinGrupo} alimento(s) del plan no tienen grupo asignado en alimentos.js, así que no cuentan para las proteínas de alto valor biológico.</div>` : ""}
+  </div>
+  ${C.comidas.map((nombre, i) => {
+    const t = Motor.totalesAlimentos(C, porComida[i]), meta = calc.comidas[i];
+    return `<div class="panel"><h2>${esc(nombre)} <span class="nota" style="font-weight:400">· meta ${nf(meta.kcal, 0)} kcal (${nf(meta.pct, 0)} %)</span></h2>
+      ${porComida[i].length ? `<div class="scroll"><table><tr><th>Alimento</th><th class="n">Gramos</th><th class="n">Kcal</th><th class="n">HC</th><th class="n">Prot.</th><th class="n">Grasa</th><th></th></tr>
+      ${porComida[i].map((it, j) => { const n = Motor.nutrientes(it.alimento, it.gramos); return `<tr><td>${esc(it.alimento.nombre)}<br><span class="nota">${esc(it.alimento.medida)} = ${nf(it.alimento.cantidad, 0)} g</span></td><td class="n"><input class="corto" data-gramos="${i}:${j}" inputmode="decimal" value="${esc(it.gramos)}"></td><td class="n">${nf(n.kcal, 0)}</td><td class="n">${nf(n.hc)}</td><td class="n">${nf(n.prot)}</td><td class="n">${nf(n.grasa)}</td><td class="no-imprimir"><button class="mini peligro" data-accion="quitarAlimento" data-c="${i}" data-j="${j}">Quitar</button></td></tr>`; }).join("")}
+      <tr><th>Total</th><th></th><th class="n">${nf(t.kcal, 0)}</th><th class="n">${nf(t.hc)}</th><th class="n">${nf(t.prot)}</th><th class="n">${nf(t.grasa)}</th><th></th></tr></table></div>` : `<p class="nota">Sin alimentos.</p>`}
+      <div class="fila no-imprimir"><input list="listaAlimentos" id="buscar${i}" placeholder="Buscar alimento…" style="flex:1;min-width:200px;padding:9px;border:1px solid #9aa8a1;border-radius:8px;font:inherit"><button data-accion="agregarAlimento" data-c="${i}">Agregar</button></div>
+    </div>`; }).join("")}`;
+}
+
+function pestanaInforme(pac, ctx) {
+  const { ev, med, plan, calc, meds } = ctx, m = calc.macros, porComida = itemsDe(plan);
+  const total = Motor.totalesAlimentos(C, porComida.flat());
+  const col = C.porciones.columnas.find((c) => c.id === plan.columna) || Motor.columnaPorciones(C, pac.sexo, ev.edad);
+  const hayPorciones = Object.values(plan.porciones).some((v) => v !== "" && v != null);
+  const ti = Motor.totalIntercambios(C, C.intercambios.map((_, i) => plan.intercambios[i]));
+  return `
+  <div class="fila no-imprimir" style="margin:0 0 10px"><button class="pri" data-accion="imprimir">Imprimir o guardar como PDF</button></div>
+  <div class="panel"><h2>Informe nutricional — ${esc(pac.nombre)}</h2>
+    <p class="nota">${pac.sexo === "hombre" ? "Hombre" : "Mujer"} · ${ev.edad} años · talla ${nf(pac.tallaCm, 0)} cm${pac.pesoHabitual ? ` · peso habitual ${nf(pac.pesoHabitual)} kg` : ""} · medición del ${fechaCorta(med.fecha)} · informe emitido el ${fechaCorta(new Date())}</p>
+    ${pac.notas ? `<p><b>Notas:</b> ${esc(pac.notas)}</p>` : ""}
+  </div>
+  <div class="panel"><h2>Estado nutricional</h2>${bloqueEvaluacion(pac, ctx)}</div>
+  ${meds.length > 1 ? `<div class="panel"><h2>Evolución</h2>${grafico(meds, (x) => x.peso, "Peso (kg)")}
+    <div class="scroll"><table><tr><th>Fecha</th><th class="n">Peso</th><th class="n">IMC</th><th class="n">% grasa</th><th class="n">% músculo</th></tr>
+    ${meds.map((x) => `<tr><td>${fechaCorta(x.fecha)}</td><td class="n">${nf(x.peso)}</td><td class="n">${nf(Motor.imc(x.peso, pac.tallaCm), 2)}</td><td class="n">${nf(x.grasaPct)}</td><td class="n">${nf(x.musculoPct)}</td></tr>`).join("")}</table></div></div>` : ""}
+  <div class="panel"><h2>Requerimiento calórico y macronutrientes</h2>
+    ${dato("Método", plan.metodo === "practica" ? `Fórmula práctica: ${nf(ev.peso)} kg × ${nf(plan.kcalKg, 1)} kcal/kg (${esc(plan.objetivo)})` : `Harris-Benedict (${nf(calc.gmb, 0)} kcal con ${calc.usaAjustado ? "peso ajustado" : "peso actual"} ${nf(calc.pesoGasto)} kg) × actividad ${nf(plan.fa, 2)} (${esc(plan.actividad)}) × injuria ${nf(plan.fi, 2)} (${esc(plan.injuria)})`)}
+    ${dato("Valor calórico total", `<b>${nf(calc.vct, 0)} kcal/día</b>`)}
+    ${dato("Proteínas", `<b>${nf(m.prot.g)} g</b> · ${nf(m.prot.kcal, 0)} kcal · ${nf(m.prot.pct)} % <span class="nota">(${nf(plan.protGkg, 2)} g/kg de peso actual)</span>`)}
+    ${dato("Grasas", `<b>${nf(m.grasa.g)} g</b> · ${nf(m.grasa.kcal, 0)} kcal · ${nf(m.grasa.pct)} %`)}
+    ${dato("Carbohidratos", `<b>${nf(m.hc.g)} g</b> · ${nf(m.hc.kcal, 0)} kcal · ${nf(m.hc.pct)} %`)}
+    ${Math.abs(m.sumaPct - 100) >= 0.05 ? `<div class="aviso">Los macronutrientes suman ${nf(m.sumaPct)} %.</div>` : ""}
+    <h3>Distribución por comida</h3>
+    <div class="scroll"><table><tr><th>Comida</th><th class="n">%</th><th class="n">Kcal</th><th class="n">HC (g)</th><th class="n">Prot. (g)</th><th class="n">Grasa (g)</th></tr>
+    ${calc.comidas.filter((c) => c.pct > 0).map((c) => `<tr><td>${esc(C.comidas[calc.comidas.indexOf(c)])}</td><td class="n">${nf(c.pct, 0)}</td><td class="n">${nf(c.kcal, 0)}</td><td class="n">${nf(c.hc)}</td><td class="n">${nf(c.prot)}</td><td class="n">${nf(c.grasa)}</td></tr>`).join("")}</table></div>
+  </div>
+  ${hayPorciones && col ? `<div class="panel"><h2>Porciones indicadas por grupo</h2>
+    <div class="scroll"><table><tr><th>Grupo</th><th class="n">Porciones</th><th>Una porción equivale a</th></tr>
+    ${C.porciones.grupos.map((g, i) => plan.porciones[i] ? `<tr><td><b>${esc(g.nombre)}</b></td><td class="n">${esc(plan.porciones[i])}</td><td class="nota">${esc(g.porcion)}</td></tr>` : "").join("")}</table></div></div>` : ""}
+  ${ti.kcal > 0 ? `<div class="panel"><h2>Intercambios indicados</h2>
+    <div class="scroll"><table><tr><th>Grupo</th><th class="n">Porciones</th></tr>
+    ${C.intercambios.map((g, i) => plan.intercambios[i] ? `<tr><td>${esc(g.grupo)}</td><td class="n">${esc(plan.intercambios[i])}</td></tr>` : "").join("")}</table></div>
+    <p class="nota">Aportan ${nf(ti.kcal, 0)} kcal · HC ${nf(ti.hc, 0)} g · proteínas ${nf(ti.prot, 0)} g · grasas ${nf(ti.grasa, 0)} g. Adecuación calórica: ${chipAdecuacion(ti.kcal, calc.vct)}</p></div>` : ""}
+  ${total.kcal > 0 ? `<div class="panel"><h2>Plan de alimentación</h2>
+    ${C.comidas.map((nombre, i) => porComida[i].length ? `<h3>${esc(nombre)}</h3><div class="scroll"><table>
+      ${porComida[i].map((it) => `<tr><td>${esc(it.alimento.nombre)}</td><td class="n">${nf(it.gramos, 0)} g</td><td class="nota">${esc(it.alimento.medida)} = ${nf(it.alimento.cantidad, 0)} g</td></tr>`).join("")}</table></div>` : "").join("")}
+    <h3>Aporte del plan</h3>
+    <p>${nf(total.kcal, 0)} kcal ${chipAdecuacion(total.kcal, calc.vct)} · HC ${nf(total.hc)} g ${chipAdecuacion(total.hc, m.hc.g)} · proteínas ${nf(total.prot)} g ${chipAdecuacion(total.prot, m.prot.g)} · grasas ${nf(total.grasa)} g ${chipAdecuacion(total.grasa, m.grasa.g)}</p></div>` : ""}
+  <p class="nota">Los valores de este informe son cálculos de apoyo. La indicación la define el profesional nutricionista.</p>`;
+}
+
+function vistaAjustes() {
+  const casos = estado.autotest;
+  return `
+  <div class="panel"><h2>Copia de datos</h2>
+    <p class="nota">Los datos se guardan solo en este dispositivo. Para pasarlos del celular a la computadora (o hacer un respaldo), exportá el archivo acá e importalo en el otro dispositivo. Importar agrega y actualiza; no borra.</p>
+    <div class="fila"><button data-accion="exportar">Exportar todos los datos</button><label style="display:inline-block"><input type="file" id="archivoImportar" accept=".json,application/json" style="display:none"><span class="chip" style="cursor:pointer;padding:9px 14px">Importar un archivo…</span></label></div>
+    ${Datos.esPersistente() ? "" : `<div class="aviso mal">Este navegador no permite guardar datos de forma permanente (¿modo privado?). Lo que cargues se pierde al cerrar la pestaña: exportá antes de salir.</div>`}
+  </div>
+  <div class="panel"><h2>Datos de ejemplo</h2>
+    <p class="nota">Crea un paciente ficticio con tres mediciones, para probar la app sin cargar nada.</p>
+    <div class="fila"><button data-accion="ejemplo">Cargar paciente de ejemplo</button></div>
+  </div>
+  <div class="panel"><h2>Verificación de las fórmulas</h2>
+    <p class="nota">Calcula casos conocidos y los compara con el resultado esperado, hecho a mano con las fórmulas del Word. Si cambiás config.js, corré esto de nuevo.</p>
+    <div class="fila"><button data-accion="autotest">Correr verificación</button></div>
+    ${casos ? `<div class="aviso ${casos.every((c) => c.ok) ? "ok" : "mal"}">${casos.filter((c) => c.ok).length} de ${casos.length} casos correctos.</div>
+    <div class="scroll"><table><tr><th></th><th>Caso</th><th class="n">Obtenido</th><th class="n">Esperado</th></tr>
+    ${casos.map((c) => `<tr><td>${c.ok ? "✔" : "✘"}</td><td>${esc(c.nombre)}</td><td class="n">${typeof c.obtenido === "number" ? nf(c.obtenido, 2) : esc(c.obtenido)}</td><td class="n">${typeof c.esperado === "number" ? nf(c.esperado, 2) : esc(c.esperado)}</td></tr>`).join("")}</table></div>` : ""}
+  </div>
+  <div class="panel"><h2>Acerca de</h2><p class="nota">Versión ${esc(C.version)} · ${ALIMENTOS.length} alimentos cargados · Las fórmulas, puntos de corte y tablas están en config.js; los alimentos, en alimentos.js.</p></div>`;
+}
+
+function dibujar() {
+  const msj = estado.mensaje ? `<div class="aviso ${estado.mensaje.tipo}">${esc(estado.mensaje.texto)}</div>` : "";
+  estado.mensaje = null;
+  $app.innerHTML = msj + (estado.vista === "ajustes" ? vistaAjustes()
+    : estado.vista === "nuevoPaciente" ? formPaciente(null)
+    : estado.vista === "paciente" ? vistaPaciente() : vistaPacientes());
+}
+
+/* ---------- acciones ---------- */
+const avisar = (texto, tipo) => { estado.mensaje = { texto, tipo: tipo || "ok" }; };
+
+function leerFormulario(id) {
+  const f = document.getElementById(id), d = {};
+  new FormData(f).forEach((v, k) => { d[k] = String(v).trim(); });
+  return d;
+}
+
+function guardarPaciente() {
+  const d = leerFormulario("fPaciente"), previo = estado.vista === "paciente" ? paciente() : null;
+  const talla = num(d.tallaCm), r = C.validacion.tallaCm;
+  if (!d.nombre || !d.fechaNac || talla == null) return avisar("Faltan el nombre, la fecha de nacimiento o la talla.", "mal");
+  if (talla < r[0] || talla > r[1]) return avisar(`La talla debe estar en centímetros, entre ${r[0]} y ${r[1]}.`, "mal");
+  const p = { id: previo ? previo.id : Datos.nuevoId(), nombre: d.nombre, sexo: d.sexo, fechaNac: d.fechaNac, tallaCm: talla,
+              pesoHabitual: num(d.pesoHabitual), munecaCm: num(d.munecaCm), pesoIdealManual: num(d.pesoIdealManual), notas: d.notas };
+  Datos.guardar("pacientes", p);
+  estado.vista = "paciente"; estado.pacienteId = p.id; estado.editando = null;
+  if (!previo) estado.pestana = "mediciones";
+  avisar("Paciente guardado.");
+}
+
+function revisarMedicion() {
+  const d = leerFormulario("fMedicion"), peso = num(d.peso);
+  estado.borrador = { fecha: d.fecha || ahoraLocal(), peso, grasaPct: num(d.grasaPct), musculoPct: num(d.musculoPct),
+                      musculoCalif: d.musculoCalif, cintura: num(d.cintura), cadera: num(d.cadera), periodoPerdida: d.periodoPerdida };
+  if (peso == null || peso <= 0) return avisar("El peso es obligatorio.", "mal");
+  estado.borrador.revisando = true;
+}
+
+function confirmarMedicion() {
+  const b = estado.borrador, m = { ...b, id: Datos.nuevoId(), pacienteId: estado.pacienteId, fecha: new Date(b.fecha).toISOString() };
+  delete m.revisando;
+  Datos.guardar("mediciones", m);
+  estado.borrador = null; estado.pestana = "evaluacion";
+  avisar("Medición guardada.");
+}
+
+function cambiarPlan(mutar) {
+  const pac = paciente(); if (!pac) return;
+  const plan = planDe(pac); mutar(plan);
+  Datos.guardar("planes", plan);
+}
+
+function cargarEjemplo() {
+  const hoy = new Date(), nac = new Date(hoy.getFullYear() - 34, 4, 12).toISOString().slice(0, 10);
+  const p = Datos.guardar("pacientes", { id: Datos.nuevoId(), nombre: "Paciente de ejemplo", sexo: "mujer", fechaNac: nac, tallaCm: 162,
+    pesoHabitual: 78, munecaCm: 15.5, pesoIdealManual: null, notas: "Datos ficticios para probar la app." });
+  [[60, 82.4, 38.6, 26.9, 98, 110], [30, 80.9, 37.8, 27.3, 96, 109], [0, 79.3, 36.9, 27.8, 94, 108]].forEach(([dias, peso, g, mu, ci, ca]) => {
+    const f = new Date(hoy); f.setDate(f.getDate() - dias);
+    Datos.guardar("mediciones", { id: Datos.nuevoId(), pacienteId: p.id, fecha: f.toISOString(), peso, grasaPct: g, musculoPct: mu, musculoCalif: "Estándar", cintura: ci, cadera: ca, periodoPerdida: "" });
+  });
+  estado.pacienteId = p.id;
+  cambiarPlan((plan) => { plan.protGkg = 1; plan.grasaPct = 30; plan.hcPct = 50; });
+  estado.vista = "paciente"; estado.pestana = "evaluacion";
+  avisar("Se creó el paciente de ejemplo.");
+}
+
+function descargar(nombre, texto) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([texto], { type: "application/json" }));
+  a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+}
+
+const ACCIONES = {
+  abrir: (el) => { estado.vista = "paciente"; estado.pacienteId = el.dataset.id; estado.pestana = "evaluacion"; estado.borrador = null; estado.editando = null; },
+  nuevoPaciente: () => { estado.vista = "nuevoPaciente"; },
+  cancelar: () => { if (estado.vista === "nuevoPaciente") estado.vista = "pacientes"; estado.editando = null; },
+  guardarPaciente,
+  editarPaciente: () => { estado.editando = "paciente"; },
+  borrarPaciente: () => {
+    const p = paciente();
+    if (!confirm(`¿Eliminar a ${p.nombre} con todas sus mediciones? No se puede deshacer.`)) return;
+    medicionesDe(p.id).forEach((m) => Datos.borrar("mediciones", m.id));
+    Datos.borrar("planes", p.id); Datos.borrar("pacientes", p.id);
+    estado.vista = "pacientes"; estado.editando = null; avisar("Paciente eliminado.");
+  },
+  pestana: (el) => { estado.pestana = el.dataset.p; estado.borrador = null; },
+  nuevaMedicion: () => { estado.borrador = { fecha: ahoraLocal() }; },
+  cancelarMedicion: () => { estado.borrador = null; },
+  revisarMedicion,
+  corregirMedicion: () => { estado.borrador.revisando = false; },
+  confirmarMedicion,
+  borrarMedicion: (el) => { if (confirm("¿Eliminar esta medición?")) { Datos.borrar("mediciones", el.dataset.id); avisar("Medición eliminada."); } },
+  graf: (el) => { estado.graf = el.dataset.g; },
+  completarHC: () => {
+    const c = contexto(paciente());
+    cambiarPlan((p) => { p.hcPct = Math.round((100 - c.calc.macros.prot.pct - p.grasaPct) * 10) / 10; });
+  },
+  copiarPorciones: () => {
+    const pac = paciente(), c = contexto(pac);
+    const col = C.porciones.columnas.find((x) => x.id === c.plan.columna) || Motor.columnaPorciones(C, pac.sexo, c.ev.edad);
+    if (!col) return;
+    // Los rangos ("3-4") no se copian: esa elección es del nutricionista.
+    cambiarPlan((p) => C.porciones.grupos.forEach((g, i) => { const v = g.valores[col.id]; if (/^[\d.,]+$/.test(v)) p.porciones[i] = v; }));
+    avisar("Se copiaron las porciones sugeridas. Donde la tabla da un rango, elegí vos el valor.");
+  },
+  agregarAlimento: (el) => {
+    const i = Number(el.dataset.c), texto = document.getElementById("buscar" + i).value.trim();
+    const a = ALIMENTOS.find((x) => etiquetaAlimento(x) === texto) || ALIMENTOS.find((x) => x.nombre.toLowerCase() === texto.toLowerCase());
+    if (!a) return avisar("Elegí un alimento de la lista.", "mal");
+    cambiarPlan((p) => p.comidas[i].push({ alimentoId: a.id, gramos: a.cantidad }));
+  },
+  quitarAlimento: (el) => cambiarPlan((p) => p.comidas[Number(el.dataset.c)].splice(Number(el.dataset.j), 1)),
+  imprimir: () => window.print(),
+  exportar: () => { descargar(`apoyo-nutricional-${new Date().toISOString().slice(0, 10)}.json`, Datos.exportar()); avisar("Archivo exportado."); },
+  ejemplo: cargarEjemplo,
+  autotest: () => { estado.autotest = Motor.autotest(C); },
+};
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-accion]");
+  if (!el || !ACCIONES[el.dataset.accion]) return;
+  e.preventDefault();
+  try { ACCIONES[el.dataset.accion](el); }
+  catch (err) { console.error(err); avisar("Ocurrió un error: " + err.message + ". Abrí la consola (F12) y copiá el detalle.", "mal"); }
+  dibujar();
+});
+
+// Los campos del plan se guardan al salir del campo (evento "change"), no en
+// cada tecla: así no se pierde el foco mientras se escribe.
+document.addEventListener("change", (e) => {
+  const el = e.target, d = el.dataset;
+  if (el.id === "archivoImportar") {
+    const lector = new FileReader();
+    lector.onload = () => {
+      try { avisar(`Se importaron ${Datos.importar(lector.result)} registros.`); }
+      catch (err) { avisar("No se pudo importar: " + err.message, "mal"); }
+      dibujar();
+    };
+    lector.readAsText(el.files[0]);
+    return;
+  }
+  if (d.plan) {
+    cambiarPlan((p) => {
+      if (["fa", "fi", "kcalKg", "protGkg", "grasaPct", "hcPct"].includes(d.plan)) { const v = num(el.value); if (v != null && v >= 0) p[d.plan] = v; }
+      else p[d.plan] = el.value;
+      // Al cambiar de categoría, el factor arranca en el mínimo de su rango.
+      if (d.plan === "actividad") p.fa = C.energia.actividad.find((a) => a.nombre === el.value).min;
+      if (d.plan === "injuria") p.fi = C.energia.injuria.find((a) => a.nombre === el.value).min;
+      if (d.plan === "objetivo") p.kcalKg = C.energia.formulaPractica[el.value].min;
+    });
+  } else if (d.comida != null) cambiarPlan((p) => { p.comidasPct[Number(d.comida)] = num(el.value) || 0; });
+  else if (d.porcion != null) cambiarPlan((p) => { p.porciones[d.porcion] = el.value.trim(); });
+  else if (d.intercambio != null) cambiarPlan((p) => { p.intercambios[d.intercambio] = el.value.trim(); });
+  else if (d.gramos) cambiarPlan((p) => { const [i, j] = d.gramos.split(":").map(Number), v = num(el.value); if (v != null && v >= 0) p.comidas[i][j].gramos = v; });
+  else return;
+  dibujar();
+});
+
+document.getElementById("btnPacientes").addEventListener("click", () => { estado.vista = "pacientes"; estado.editando = null; estado.borrador = null; dibujar(); });
+document.getElementById("btnAjustes").addEventListener("click", () => { estado.vista = "ajustes"; dibujar(); });
+
+/* ---------- arranque ---------- */
+(async function iniciar() {
+  if (!C) { $app.innerHTML = `<div class="aviso mal">No se pudo cargar config.js. Tiene que estar en la misma carpeta que index.html.</div>`; return; }
+  await Datos.iniciar();
+  if (!ALIMENTOS.length) avisar("No se cargó alimentos.js: el planificador no va a tener alimentos. El resto funciona.", "mal");
+  dibujar();
+})();
+</script>
+</body>
+</html>
