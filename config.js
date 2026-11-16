@@ -17,7 +17,7 @@
    fila cuyo "hasta" sea mayor que el valor. "hasta: null" = sin límite.
    ========================================================================== */
 window.CONFIG = {
-  version: "4.3 — adultos",
+  version: "4.4 — adultos",
 
   /* ---------- Validación de carga (plausibilidad, no criterio clínico) ---------- */
   validacion: {

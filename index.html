@@ -2,6 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<!-- Seguridad: la página solo puede cargar sus propios archivos y no puede
+     enviar datos a ningún otro sitio (connect-src 'none'). Si algún día se
+     agrega sincronización en la nube, hay que ajustar esta línea. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Apoyo Nutricional</title>
 <link rel="icon" href="data:,">
@@ -669,10 +675,54 @@ const Datos = (() => {
     return JSON.stringify({ app: "apoyo-nutricional", exportado: new Date().toISOString(), ...cache }, null, 1);
   }
 
-  // Importar AGREGA y actualiza por id; no borra lo que ya hay en este dispositivo.
+  // Revisa un archivo ANTES de guardar nada. Si algo no tiene la forma
+  // esperada se rechaza el archivo entero, así no entra información a medias
+  // ni texto preparado para romper la app.
+  //  - Cada tabla tiene que ser una lista de registros con "id".
+  //  - Los identificadores solo pueden tener letras, números, "-" y "_".
+  //  - Se controla la forma mínima de cada tipo de registro.
+  const ID_OK = /^[A-Za-z0-9_-]{1,60}$/, CLAVES_ID = ["id", "pacienteId", "rid", "origenId", "medicionId"];
+  function validarImportacion(d) {
+    const mal = (texto) => { throw new Error(texto); };
+    const esObjeto = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+    const fechaOk = (s) => typeof s === "string" && !isNaN(new Date(s));
+    if (!esObjeto(d) || d.app !== "apoyo-nutricional") mal("El archivo no es una exportación de esta app.");
+    // Recorre todo el registro buscando identificadores con caracteres no permitidos.
+    const revisarIds = (x, tabla, nivel) => {
+      if (nivel > 12) mal(`Un registro de "${tabla}" tiene una forma que la app no reconoce.`);
+      if (Array.isArray(x)) return x.forEach((y) => revisarIds(y, tabla, nivel + 1));
+      if (!esObjeto(x)) return;
+      Object.keys(x).forEach((k) => {
+        if (CLAVES_ID.includes(k) && x[k] != null && !(typeof x[k] === "string" && ID_OK.test(x[k]))) mal(`Un registro de "${tabla}" tiene un identificador no válido.`);
+        revisarIds(x[k], tabla, nivel + 1);
+      });
+    };
+    const forma = {
+      pacientes: (o) => typeof o.nombre === "string" && ["mujer", "hombre"].includes(o.sexo) && fechaOk(o.fechaNac) && typeof o.tallaCm === "number" && isFinite(o.tallaCm),
+      mediciones: (o) => typeof o.pacienteId === "string" && fechaOk(o.fecha) && typeof o.peso === "number" && o.peso > 0,
+      planes: (o) => (o.dias == null || (Array.isArray(o.dias) && o.dias.every((dia) => Array.isArray(dia) && dia.every(Array.isArray)))) && (o.comidasPct == null || Array.isArray(o.comidasPct)),
+      preparaciones: (o) => typeof o.nombre === "string" && Array.isArray(o.ingredientes),
+      eventos: (o) => typeof o.tipo === "string",
+      cuestionarios: (o) => (o.respuestas == null || esObjeto(o.respuestas)) && (o.recordatorio == null || (Array.isArray(o.recordatorio) && o.recordatorio.every((c) => esObjeto(c) && Array.isArray(c.items)))) && (o.frecuencia == null || (esObjeto(o.frecuencia) && Object.values(o.frecuencia).every(Array.isArray))),
+      laboratorios: (o) => typeof o.pacienteId === "string" && typeof o.fecha === "string" && esObjeto(o.valores) && (o.extras == null || Array.isArray(o.extras)),
+    };
+    TABLAS.forEach((t) => {
+      if (d[t] == null) return;
+      if (!Array.isArray(d[t])) mal(`La parte "${t}" del archivo no es una lista.`);
+      d[t].forEach((o) => {
+        if (!esObjeto(o) || typeof o.id !== "string") mal(`Hay un registro de "${t}" sin identificador.`);
+        revisarIds(o, t, 0);
+        if (!forma[t](o)) mal(`Hay un registro de "${t}" incompleto o con datos de un tipo inesperado.`);
+      });
+    });
+  }
+
+  // Importar AGREGA y actualiza por id; no borra lo que ya hay en este
+  // dispositivo. Primero valida todo el archivo; si falla, no guarda nada.
   function importar(texto) {
-    const d = JSON.parse(texto);
-    if (d.app !== "apoyo-nutricional") throw new Error("El archivo no es una exportación de esta app.");
+    let d;
+    try { d = JSON.parse(texto); } catch (e) { throw new Error("El archivo no se puede leer: no es una exportación de esta app."); }
+    validarImportacion(d);
     let n = 0;
     TABLAS.forEach((t) => (d[t] || []).forEach((o) => { guardar(t, o); n++; }));
     return n;
@@ -687,7 +737,7 @@ const Datos = (() => {
    Nunca calcula nada clínico: le pregunta todo al Motor.
    ========================================================================== */
 const C = window.CONFIG, ALIMENTOS = window.ALIMENTOS || [];
-const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null, dia: 0, recetaEdit: null, labEdit: null, habitualAbierto: false, habitualComida: null };
+const estado = { vista: "pacientes", pacienteId: null, pestana: "evaluacion", editando: null, borrador: null, graf: "peso", mensaje: null, dia: 0, recetaEdit: null, labEdit: null, habitualAbierto: false, habitualComida: null, borradorPac: null };
 const $app = document.getElementById("app");
 
 /* ---------- utilidades de formato ---------- */
@@ -778,14 +828,15 @@ function vistaPacientes() {
     <h2>Pacientes</h2>
     ${lista.length ? `<div class="lista-pac">${lista.map((p) => {
       const n = medicionesDe(p.id).length;
-      return `<button data-accion="abrir" data-id="${p.id}"><b>${esc(p.nombre)}</b><br><small>${p.sexo === "hombre" ? "Hombre" : "Mujer"} · ${Motor.edadEn(p.fechaNac, new Date())} años · ${n} medición${n === 1 ? "" : "es"}</small></button>`;
+      return `<button data-accion="abrir" data-id="${esc(p.id)}"><b>${esc(p.nombre)}</b><br><small>${p.sexo === "hombre" ? "Hombre" : "Mujer"} · ${Motor.edadEn(p.fechaNac, new Date())} años · ${n} ${n === 1 ? "medición" : "mediciones"}</small></button>`;
     }).join("")}</div>` : `<p class="nota">Todavía no hay pacientes. Creá uno, o cargá los datos de ejemplo desde Ajustes para probar la app.</p>`}
     <div class="fila"><button class="pri" data-accion="nuevoPaciente">+ Nuevo paciente</button></div>
   </div>`;
 }
 
 function formPaciente(p) {
-  p = p || {};
+  // Si el guardado anterior falló, se vuelve a mostrar lo que se había escrito.
+  p = { ...(p || {}), ...(estado.borradorPac || {}) };
   return `
   <div class="panel">
     <h2>${p.id ? "Editar paciente" : "Nuevo paciente"}</h2>
@@ -879,7 +930,7 @@ function seriesEvolucion(pac) {
 function tablaEvolucion(pac, meds, conBorrar) {
   const s = seriesEvolucion(pac);
   return `<div class="scroll"><table><tr><th>Fecha</th><th class="n">Peso</th><th class="n">Grasa kg</th><th class="n">Músculo kg</th><th class="n">% grasa</th><th class="n">% músc.</th><th class="n">IMC</th><th class="n">Cintura</th>${conBorrar ? `<th class="no-imprimir"></th>` : ""}</tr>
-    ${meds.map((m) => `<tr><td>${fechaCorta(m.fecha)}</td><td class="n">${nf(m.peso)}</td><td class="n">${nf(s.grasaKg[1](m))}</td><td class="n">${nf(m.musculoKg)}</td><td class="n">${nf(s.grasaPct[1](m))}</td><td class="n">${nf(m.musculoPct)}</td><td class="n">${nf(s.imc[1](m), 2)}</td><td class="n">${nf(m.cintura)}</td>${conBorrar ? `<td class="no-imprimir"><button class="mini peligro" data-accion="borrarMedicion" data-id="${m.id}">Eliminar</button></td>` : ""}</tr>`).join("")}
+    ${meds.map((m) => `<tr><td>${fechaCorta(m.fecha)}</td><td class="n">${nf(m.peso)}</td><td class="n">${nf(s.grasaKg[1](m))}</td><td class="n">${nf(m.musculoKg)}</td><td class="n">${nf(s.grasaPct[1](m))}</td><td class="n">${nf(m.musculoPct)}</td><td class="n">${nf(s.imc[1](m), 2)}</td><td class="n">${nf(m.cintura)}</td>${conBorrar ? `<td class="no-imprimir"><button class="mini peligro" data-accion="borrarMedicion" data-id="${esc(m.id)}">Eliminar</button></td>` : ""}</tr>`).join("")}
   </table></div>`;
 }
 
@@ -895,6 +946,7 @@ function pestanaMediciones(pac) {
     if (b.grasaKg != null && b.grasaPct != null && Math.abs(b.grasaKg - b.peso * b.grasaPct / 100) > C.validacion.toleranciaGrasaKg)
       avisos.push(`Los ${nf(b.grasaKg)} kg de grasa no coinciden con ${nf(b.grasaPct)} % de ${nf(b.peso)} kg (serían ${nf(b.peso * b.grasaPct / 100)} kg). Revisá los dos valores.`);
     if (b.grasaKg != null && b.musculoKg != null && b.grasaKg + b.musculoKg > b.peso) avisos.push("La grasa y el músculo en kg suman más que el peso. Revisá los valores.");
+    if (new Date(b.fecha) > new Date()) avisos.push("La fecha de la medición es posterior a hoy. Revisá si está bien.");
     const previo = meds[meds.length - 1];
     if (previo && Math.abs(b.peso - previo.peso) > previo.peso * 0.1) avisos.push(`El peso cambia más de 10 % respecto de la medición anterior (${nf(previo.peso)} kg).`);
     form = `<h2>Confirmar medición</h2>
@@ -1139,7 +1191,7 @@ function vistaRecetas() {
   <div class="panel"><h2>Recetas</h2>
     <p class="nota">Recetas disponibles para todos los pacientes. Para usar una, entrá al plan semanal del paciente y buscala por su nombre (aparece con ★): ahí se pone una copia que podés adaptar a ese paciente.</p>
     ${lib.length ? `<div class="scroll"><table>${lib.map((p) => { const ings = Motor.ingredientesEnGramos(p, alimentoPorId, 1), n = Motor.totalesAlimentos(C, ings);
-      return `<tr><td><b>${esc(p.nombre)}</b><br><span class="nota">${esc(textoIngredientes(ings))}</span></td><td class="n">${nf(n.kcal, 0)} kcal<br><span class="nota">HC ${nf(n.hc, 0)} · P ${nf(n.prot, 0)} · G ${nf(n.grasa, 0)}</span></td><td><button class="mini" data-accion="editarRecetaBiblioteca" data-id="${p.id}">Editar</button> <button class="mini peligro" data-accion="borrarDeBiblioteca" data-id="${p.id}">Eliminar</button></td></tr>`; }).join("")}</table></div>`
+      return `<tr><td><b>${esc(p.nombre)}</b><br><span class="nota">${esc(textoIngredientes(ings))}</span></td><td class="n">${nf(n.kcal, 0)} kcal<br><span class="nota">HC ${nf(n.hc, 0)} · P ${nf(n.prot, 0)} · G ${nf(n.grasa, 0)}</span></td><td><button class="mini" data-accion="editarRecetaBiblioteca" data-id="${esc(p.id)}">Editar</button> <button class="mini peligro" data-accion="borrarDeBiblioteca" data-id="${esc(p.id)}">Eliminar</button></td></tr>`; }).join("")}</table></div>`
       : `<p class="nota">Todavía no hay recetas cargadas.</p>`}
     <div class="fila"><button class="pri" data-accion="nuevaReceta">+ Receta nueva</button></div>
   </div>`;
@@ -1251,10 +1303,10 @@ function tablaMultipleQ(tabla, q) {
   return `<p class="nota">En "Tipo" elegí el alimento de la lista (por ejemplo, Salmón rosado) para que después aparezca como habitual en el plan semanal. Si no está en la lista, escribilo: queda como texto. Con "+ Agregar otro tipo" se cargan varios del mismo alimento.</p>
   ${tabla.filas.map((f) => `<div class="qfila"><b>${esc(f.texto)}</b>
     ${renglonesFC(q, f.id).map((x, k) => { const a = x.alimentoId != null ? alimentoPorId(x.alimentoId) : null;
-      return `<div class="qcols" ${k ? 'style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--linea)"' : ""}>${tabla.columnas.map((c) => { const at = `data-fc="${f.id}:${x.rid}:${c.id}"`;
-        return c.tipo === "alimento" ? `<label class="ancho">${esc(c.texto)}<input list="listaIngredientes" ${at} value="${esc(a ? etiquetaAlimento(a) : x[c.id])}" placeholder="Elegí o escribí"><span class="nota" data-fc-estado="${f.id}:${x.rid}">${estadoTipoFC(x)}</span></label>`
+      return `<div class="qcols" ${k ? 'style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--linea)"' : ""}>${tabla.columnas.map((c) => { const at = `data-fc="${esc(f.id + ":" + x.rid + ":" + c.id)}"`;
+        return c.tipo === "alimento" ? `<label class="ancho">${esc(c.texto)}<input list="listaIngredientes" ${at} value="${esc(a ? etiquetaAlimento(a) : x[c.id])}" placeholder="Elegí o escribí"><span class="nota" data-fc-estado="${esc(f.id + ":" + x.rid)}">${estadoTipoFC(x)}</span></label>`
           : `<label>${esc(c.texto)}<input ${at} ${c.tipo === "numero" ? 'inputmode="decimal"' : ""} value="${esc(x[c.id])}"></label>`; }).join("")}
-        ${k ? `<div style="align-self:end"><button class="mini peligro" data-accion="quitarTipoFC" data-f="${f.id}" data-r="${x.rid}">Quitar este tipo</button></div>` : ""}</div>`; }).join("")}
+        ${k ? `<div style="align-self:end"><button class="mini peligro" data-accion="quitarTipoFC" data-f="${f.id}" data-r="${esc(x.rid)}">Quitar este tipo</button></div>` : ""}</div>`; }).join("")}
     <div class="fila no-imprimir" style="margin-top:6px"><button class="mini" data-accion="agregarTipoFC" data-f="${f.id}">+ Agregar otro tipo</button></div></div>`).join("")}`;
 }
 
@@ -1311,7 +1363,9 @@ function valoresDeLaApp(pac, ctx) {
 // Lo que se calcula con las respuestas del cuestionario: riesgo de apnea,
 // riesgo por perímetro sagital y sumas (4 pliegues).
 function calculosAntropo(pac, r) {
-  const A = Q.antropometria, cuello = num(r[A.apnea.campo]), sag = num(r[A.sagital.campo]), corte = A.sagital.riesgoMayorA[pac.sexo];
+  // Solo se interpretan medidas mayores que cero; letras o negativos no dan resultado.
+  const A = Q.antropometria, positivo = (v) => v != null && v > 0 ? v : null;
+  const cuello = positivo(num(r[A.apnea.campo])), sag = positivo(num(r[A.sagital.campo])), corte = A.sagital.riesgoMayorA[pac.sexo];
   const out = { apnea: cuello == null ? "—" : Motor.riesgoApnea(C, cuello) };
   out.sagital = sag == null ? "" : Motor.riesgoSagital(C, pac.sexo, sag) ? `Riesgo metabólico (supera ${corte} cm)` : `No supera ${corte} cm`;
   A.parametros.filter((p) => p.suma).forEach((p) => { const s = Motor.sumaSiCompleta(p.suma.map((id) => num(r[id]))); out[p.id] = s == null ? "—" : nf(s); });
@@ -1351,7 +1405,7 @@ function seccionLaboratorio(pac) {
   const labs = labsDe(pac.id), L = Q.laboratorio;
   const linea = (nombre, x) => `${esc(nombre)}: <b>${esc(textoValor(x.valor))}</b>${x.interp ? ` (${esc(x.interp)})` : ""}`;
   return `${estado.labEdit ? editorLab() : `<div class="fila" style="margin-top:0"><button class="pri" data-accion="nuevoLab">+ Nuevo análisis</button></div>`}
-  ${labs.length ? labs.map((l) => `<div class="qfila"><b>${fechaCorta(l.fecha + "T12:00")}</b> <button class="mini" data-accion="editarLab" data-id="${l.id}">Editar</button> <button class="mini peligro" data-accion="borrarLab" data-id="${l.id}">Eliminar</button>
+  ${labs.length ? labs.map((l) => `<div class="qfila"><b>${fechaCorta(l.fecha + "T12:00")}</b> <button class="mini" data-accion="editarLab" data-id="${esc(l.id)}">Editar</button> <button class="mini peligro" data-accion="borrarLab" data-id="${esc(l.id)}">Eliminar</button>
     <br><span class="nota">${[...L.determinaciones.filter((d) => l.valores[d.id]).map((d) => linea(d.texto, l.valores[d.id])), ...(l.extras || []).map((x) => linea(x.nombre, x))].join(" · ") || "Sin valores"}</span></div>`).join("")
     : `<p class="nota">Todavía no hay análisis cargados. Se pueden cargar varios, cada uno con su fecha.</p>`}`;
 }
@@ -1511,9 +1565,17 @@ function leerFormulario(id) {
 
 function guardarPaciente() {
   const d = leerFormulario("fPaciente"), previo = estado.vista === "paciente" ? paciente() : null;
+  // Ante un dato inválido se conserva lo escrito y se explica qué corregir.
+  const falla = (texto) => { estado.borradorPac = d; avisar(texto, "mal"); };
   const talla = num(d.tallaCm), r = C.validacion.tallaCm;
-  if (!d.nombre || !d.fechaNac || talla == null) return avisar("Faltan el nombre, la fecha de nacimiento o la talla.", "mal");
-  if (talla < r[0] || talla > r[1]) return avisar(`La talla debe estar en centímetros, entre ${r[0]} y ${r[1]}.`, "mal");
+  if (!d.nombre || !d.fechaNac || talla == null) return falla("Faltan el nombre, la fecha de nacimiento o la talla (en números).");
+  if (talla < r[0] || talla > r[1]) return falla(`La talla debe estar en centímetros, entre ${r[0]} y ${r[1]}.`);
+  if (isNaN(new Date(d.fechaNac)) || new Date(d.fechaNac) > new Date()) return falla("La fecha de nacimiento no puede ser posterior a hoy.");
+  // Los datos opcionales, si se cargan, tienen que ser números mayores que cero.
+  for (const [campo, nombre] of [["pesoHabitual", "El peso habitual"], ["munecaCm", "La circunferencia de muñeca"], ["pesoIdealManual", "El peso ideal a mano"]]) {
+    if (d[campo] && !(num(d[campo]) > 0)) return falla(`${nombre} tiene que ser un número mayor que cero (o quedar vacío).`);
+  }
+  estado.borradorPac = null;
   const p = { id: previo ? previo.id : Datos.nuevoId(), nombre: d.nombre, sexo: d.sexo, fechaNac: d.fechaNac, tallaCm: talla,
               pesoHabitual: num(d.pesoHabitual), munecaCm: num(d.munecaCm), pesoIdealManual: num(d.pesoIdealManual), notas: d.notas };
   Datos.guardar("pacientes", p);
@@ -1722,11 +1784,11 @@ function descargar(nombre, texto, tipo) {
 }
 
 const ACCIONES = {
-  abrir: (el) => { estado.vista = "paciente"; estado.pacienteId = el.dataset.id; estado.pestana = "evaluacion"; estado.borrador = null; estado.editando = null; estado.recetaEdit = null; estado.labEdit = null; },
-  nuevoPaciente: () => { estado.vista = "nuevoPaciente"; },
-  cancelar: () => { if (estado.vista === "nuevoPaciente") estado.vista = "pacientes"; estado.editando = null; },
+  abrir: (el) => { estado.vista = "paciente"; estado.pacienteId = el.dataset.id; estado.pestana = "evaluacion"; estado.borrador = null; estado.editando = null; estado.recetaEdit = null; estado.labEdit = null; estado.borradorPac = null; estado.habitualComida = null; estado.habitualAbierto = false; },
+  nuevoPaciente: () => { estado.vista = "nuevoPaciente"; estado.borradorPac = null; },
+  cancelar: () => { if (estado.vista === "nuevoPaciente") estado.vista = "pacientes"; estado.editando = null; estado.borradorPac = null; },
   guardarPaciente,
-  editarPaciente: () => { estado.editando = "paciente"; },
+  editarPaciente: () => { estado.editando = "paciente"; estado.borradorPac = null; },
   borrarPaciente: () => {
     const p = paciente();
     if (!confirm(`¿Eliminar a ${p.nombre} con todas sus mediciones? No se puede deshacer.`)) return;
@@ -1874,7 +1936,7 @@ const ACCIONES = {
   nuevoLab: () => {
     // Las determinaciones agregadas a mano en análisis anteriores se ofrecen de nuevo.
     const nombres = [...new Set(Datos.cache.laboratorios.flatMap((l) => (l.extras || []).map((x) => x.nombre)))];
-    estado.labEdit = { id: null, borrador: { fecha: new Date().toISOString().slice(0, 10), valores: {}, extras: nombres.map((nombre) => ({ nombre, valor: "", interp: "" })) } };
+    estado.labEdit = { id: null, borrador: { fecha: ahoraLocal().slice(0, 10), valores: {}, extras: nombres.map((nombre) => ({ nombre, valor: "", interp: "" })) } };
   },
   editarLab: (el) => {
     const l = Datos.cache.laboratorios.find((x) => x.id === el.dataset.id);
@@ -1903,8 +1965,8 @@ const ACCIONES = {
     Datos.borrar("laboratorios", l.id); Datos.registrar("laboratorio-borrado", l.pacienteId, { antes: l });
     avisar("Análisis eliminado.");
   },
-  csvCuestionarios: () => descargar(`cuestionarios-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVCuestionarios()), "text/csv"),
-  csvFrecuencia: () => descargar(`frecuencia-consumo-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVFrecuencia()), "text/csv"),
+  csvCuestionarios: () => descargar(`cuestionarios-${ahoraLocal().slice(0, 10)}.csv`, aCSV(filasCSVCuestionarios()), "text/csv"),
+  csvFrecuencia: () => descargar(`frecuencia-consumo-${ahoraLocal().slice(0, 10)}.csv`, aCSV(filasCSVFrecuencia()), "text/csv"),
   // ----- cuestionario: frecuencia de consumo -----
   agregarTipoFC: (el) => cambiarCuestionario((q) => {
     const lista = q.frecuencia[el.dataset.f] = renglonesFC(q, el.dataset.f);
@@ -1918,12 +1980,12 @@ const ACCIONES = {
     const a = alimentoPorId(Number(el.dataset.id)); if (!a) return;
     cambiarPlan((p) => p.dias[estado.dia][Number(el.dataset.c)].push({ alimentoId: a.id, gramos: a.cantidad }));
   },
-  csvLaboratorios: () => descargar(`laboratorios-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVLaboratorios()), "text/csv"),
-  csvMediciones: () => descargar(`mediciones-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVMediciones()), "text/csv"),
-  csvPlanes: () => descargar(`planes-${new Date().toISOString().slice(0, 10)}.csv`, aCSV(filasCSVPlanes()), "text/csv"),
+  csvLaboratorios: () => descargar(`laboratorios-${ahoraLocal().slice(0, 10)}.csv`, aCSV(filasCSVLaboratorios()), "text/csv"),
+  csvMediciones: () => descargar(`mediciones-${ahoraLocal().slice(0, 10)}.csv`, aCSV(filasCSVMediciones()), "text/csv"),
+  csvPlanes: () => descargar(`planes-${ahoraLocal().slice(0, 10)}.csv`, aCSV(filasCSVPlanes()), "text/csv"),
   csvClasificacion: () => descargar("clasificacion-lacteos-carnes.csv", aCSV(filasCSVClasificacion()), "text/csv"),
   imprimir: () => window.print(),
-  exportar: () => { descargar(`apoyo-nutricional-${new Date().toISOString().slice(0, 10)}.json`, Datos.exportar()); avisar("Archivo exportado."); },
+  exportar: () => { descargar(`apoyo-nutricional-${ahoraLocal().slice(0, 10)}.json`, Datos.exportar()); avisar("Archivo exportado."); },
   ejemplo: cargarEjemplo,
   autotest: () => { estado.autotest = Motor.autotest(C); },
 };
@@ -1964,15 +2026,19 @@ document.addEventListener("change", (e) => {
       if (d.plan === "injuria") p.fi = C.energia.injuria.find((a) => a.nombre === el.value).min;
       if (d.plan === "objetivo") p.kcalKg = C.energia.formulaPractica[el.value].min;
     });
-  } else if (d.comida != null) cambiarPlan((p) => { p.comidasPct[Number(d.comida)] = num(el.value) || 0; });
-  else if (d.porcion != null) cambiarPlan((p) => { p.porciones[d.porcion] = el.value.trim(); });
+  } else if (d.comida != null) cambiarPlan((p) => { p.comidasPct[Number(d.comida)] = Math.max(0, num(el.value) || 0); });   // nunca negativo
+  else if (d.porcion != null) cambiarPlan((p) => {
+    // Solo números positivos (o vacío). Cualquier otra cosa se descarta y queda el valor anterior.
+    const v = el.value.trim();
+    if (v === "") delete p.porciones[d.porcion]; else if (/^\d+([.,]\d+)?$/.test(v)) p.porciones[d.porcion] = v;
+  });
   else if (d.gramos) cambiarPlan((p) => { const [i, j] = d.gramos.split(":").map(Number), v = num(el.value); if (v != null && v >= 0) p.dias[estado.dia][i][j].gramos = v; });
   else if (d.factor) cambiarPlan((p) => { const [i, j] = d.factor.split(":").map(Number), v = num(el.value); if (v != null && v > 0) p.dias[estado.dia][i][j].factor = v; });
   else if (d.repP) cambiarPlan((p) => {
     // Casilla de la matriz de reparto: "grupo:comida".
     const [g, c] = d.repP.split(":").map(Number);
     if (!p.porcionesReparto[g]) p.porcionesReparto[g] = C.comidas.map(() => 0);
-    p.porcionesReparto[g][c] = num(el.value) || 0;
+    p.porcionesReparto[g][c] = Math.max(0, num(el.value) || 0);   // nunca negativo
   });
   else if (d.q) {
     // Respuesta del cuestionario: se guarda sin volver a dibujar la pantalla,
@@ -2017,9 +2083,11 @@ document.addEventListener("change", (e) => {
   dibujar();
 });
 
-document.getElementById("btnPacientes").addEventListener("click", () => { estado.vista = "pacientes"; estado.editando = null; estado.borrador = null; estado.recetaEdit = null; dibujar(); });
-document.getElementById("btnRecetas").addEventListener("click", () => { estado.vista = "recetas"; estado.recetaEdit = null; dibujar(); });
-document.getElementById("btnAjustes").addEventListener("click", () => { estado.vista = "ajustes"; estado.recetaEdit = null; dibujar(); });
+// Al cambiar de apartado se cierran los formularios que quedaron a medio cargar.
+const irA = (vista) => () => { Object.assign(estado, { vista, editando: null, borrador: null, recetaEdit: null, labEdit: null, borradorPac: null }); dibujar(); };
+document.getElementById("btnPacientes").addEventListener("click", irA("pacientes"));
+document.getElementById("btnRecetas").addEventListener("click", irA("recetas"));
+document.getElementById("btnAjustes").addEventListener("click", irA("ajustes"));
 
 /* ---------- arranque ---------- */
 (async function iniciar() {
